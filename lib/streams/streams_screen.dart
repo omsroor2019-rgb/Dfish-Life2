@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../services/cloud_data_service.dart';
 import '../services/firebase_runtime.dart';
@@ -13,6 +17,7 @@ const _line = Color(0xFF263445);
 const _mint = Color(0xFF20E6B2);
 const _text = Color(0xFFF4F7FA);
 const _muted = Color(0xFF8D9AAA);
+const _mobileBrowserAgent = 'Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
 
 class StreamMatchesScreen extends StatefulWidget {
   const StreamMatchesScreen({super.key});
@@ -177,7 +182,7 @@ class _StreamMatchScreenState extends State<StreamMatchScreen> {
     }
     setState(() { _loading = true; _error = null; _selected = index; _qualityTracks = const []; });
     await _controller?.dispose();
-    final controller = VideoPlayerController.networkUrl(uri);
+    final controller = VideoPlayerController.networkUrl(uri, httpHeaders: {'User-Agent': _mobileBrowserAgent});
     _controller = controller;
     try {
       await controller.initialize().timeout(const Duration(seconds: 35));
@@ -232,7 +237,7 @@ class _StreamMatchScreenState extends State<StreamMatchScreen> {
         return Padding(padding: const EdgeInsets.only(bottom: 8), child: Material(color: selected ? _mint.withValues(alpha: .13) : _panel, borderRadius: BorderRadius.circular(13), child: InkWell(borderRadius: BorderRadius.circular(13), onTap: () => _play(source, entry.key), child: Padding(padding: const EdgeInsets.all(14), child: Row(children: [Icon(LucideIcons.playCircle, color: selected ? _mint : _muted), const SizedBox(width: 10), Expanded(child: Text(source['name']?.toString() ?? 'مصدر ${entry.key + 1}', style: TextStyle(color: selected ? _mint : _text, fontWeight: FontWeight.w800))), if (selected) const Icon(LucideIcons.check, color: _mint)])))));
       }),
       const SizedBox(height: 12),
-      const Text('التشغيل داخل التطبيق يدعم روابط الفيديو المباشرة المعروفة مثل HLS (.m3u8) وMP4. صفحات الويب تفتح داخل متصفح مدمج مقيّد؛ لا نحاول استخراج أو تجاوز مشغلات محمية أو إعلانات أو قيود وصول.', style: TextStyle(color: _muted, fontSize: 10, height: 1.7)),
+      const Text('تعمل روابط الفيديو المباشرة وصفحات البث المتوافقة داخل التطبيق.', style: TextStyle(color: _muted, fontSize: 10, height: 1.7)),
     ]));
   }
 }
@@ -248,45 +253,130 @@ class _WebStreamScreenState extends State<WebStreamScreen> {
   late final WebViewController _web;
   int _progress = 0;
   String? _error;
+  Uri? _loadedUri;
+  bool _ready = false;
+  bool _resolving = true;
 
   @override
   void initState() {
     super.initState();
-    _web = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..setNavigationDelegate(NavigationDelegate(
+    _web = WebViewController();
+    _prepareAndLoad();
+  }
+
+  Future<Uri> _resolveHttpsRedirects(Uri original) async {
+    // لا نرسل طلب GET استكشافي لملفات الفيديو حتى لا يبدأ تنزيل البث كاملاً.
+    final path = original.path.toLowerCase();
+    if (path.endsWith('.m3u8') || path.endsWith('.mp4') ||
+        path.endsWith('.mpd') || path.endsWith('.webm')) {
+      return original;
+    }
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', original)
+        ..followRedirects = true
+        ..maxRedirects = 10
+        ..headers['User-Agent'] = _mobileBrowserAgent;
+      final response = await client.send(request).timeout(const Duration(seconds: 12));
+      final destination = response.request?.url ?? original;
+      // نحتاج رؤوس الاستجابة ووجهة التحويل فقط، لا محتوى الصفحة كاملاً.
+      await response.stream.listen((_) {}).cancel();
+      if (destination.scheme == 'https' && destination.host.isNotEmpty) return destination;
+    } on TimeoutException {
+      // Keep the original link; WebView can still resolve it itself.
+    } catch (_) {
+      // Some short-link services block non-browser probes.
+    } finally {
+      client.close();
+    }
+    return original;
+  }
+
+  Future<void> _prepareAndLoad() async {
+    try {
+      await _web.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _web.setBackgroundColor(Colors.black);
+      await _web.setUserAgent(_mobileBrowserAgent);
+      final platform = _web.platform;
+      if (platform is AndroidWebViewController) {
+        await platform.setMediaPlaybackRequiresUserGesture(false);
+        await platform.setMixedContentMode(MixedContentMode.compatibilityMode);
+        final cookies = WebViewCookieManager();
+        if (cookies.platform is AndroidWebViewCookieManager) {
+          await (cookies.platform as AndroidWebViewCookieManager)
+              .setAcceptThirdPartyCookies(platform, true);
+        }
+      }
+      await _web.setNavigationDelegate(NavigationDelegate(
         onProgress: (value) { if (mounted) setState(() => _progress = value); },
-        onPageFinished: (_) { if (mounted) setState(() => _progress = 100); },
-        onWebResourceError: (error) { if (error.isForMainFrame == true && mounted) setState(() => _error = error.description); },
+        onPageStarted: (_) { if (mounted) setState(() { _progress = 0; _error = null; }); },
+        onPageFinished: (_) async {
+          if (!mounted) return;
+          setState(() => _progress = 100);
+          try {
+            await _web.runJavaScript(r"""
+              (function () {
+                document.addEventListener('click', function (event) {
+                  var anchor = event.target && event.target.closest ? event.target.closest('a[target="_blank"]') : null;
+                  if (anchor && anchor.href) { event.preventDefault(); window.location.href = anchor.href; }
+                }, true);
+                window.open = function (url) { if (url) window.location.href = url; return null; };
+              })();
+            """);
+          } catch (_) {}
+        },
+        onWebResourceError: (error) {
+          if (error.isForMainFrame == true && mounted) setState(() => _error = error.description);
+        },
         onNavigationRequest: (request) {
           final target = Uri.tryParse(request.url);
           if (target == null) return NavigationDecision.prevent;
           if (target.scheme == 'about' && target.path == 'blank') return NavigationDecision.navigate;
-          if (target.scheme != 'https') return NavigationDecision.prevent;
-          // Short links (for example buff.ly) commonly redirect to Blogger or
-          // another HTTPS host. Allow HTTPS redirects and embedded player pages;
-          // continue blocking insecure HTTP and custom schemes.
-          return NavigationDecision.navigate;
+          return target.scheme == 'https' ? NavigationDecision.navigate : NavigationDecision.prevent;
         },
-      ))
-      ..loadRequest(widget.uri);
+      ));
+      final resolved = await _resolveHttpsRedirects(widget.uri);
+      if (!mounted) return;
+      _loadedUri = resolved;
+      await _web.loadRequest(resolved);
+      if (mounted) setState(() { _ready = true; _resolving = false; });
+    } catch (error) {
+      if (mounted) setState(() { _error = error.toString(); _resolving = false; });
+    }
+  }
+
+  Future<void> _reload() async {
+    if (!mounted) return;
+    setState(() { _progress = 0; _error = null; _resolving = true; });
+    final resolved = await _resolveHttpsRedirects(widget.uri);
+    if (!mounted) return;
+    _loadedUri = resolved;
+    await _web.loadRequest(resolved);
+    if (mounted) setState(() => _resolving = false);
+  }
+
+  Future<bool> _handleBack() async {
+    if (await _web.canGoBack()) { await _web.goBack(); return false; }
+    return true;
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.black,
-    appBar: AppBar(
-      backgroundColor: _bg,
-      title: Text('مشغل البث · ${widget.uri.host}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
-      actions: [IconButton(tooltip: 'إعادة تحميل', onPressed: () { setState(() { _progress = 0; _error = null; }); _web.reload(); }, icon: const Icon(LucideIcons.refreshCw, color: _mint))],
+  Widget build(BuildContext context) => WillPopScope(
+    onWillPop: _handleBack,
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        title: Text('البث · ${(_loadedUri ?? widget.uri).host}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'إعادة تحميل', onPressed: _reload, icon: const Icon(LucideIcons.refreshCw, color: _mint))],
+      ),
+      body: Column(children: [
+        if (_resolving) const LinearProgressIndicator(minHeight: 2, color: _mint, backgroundColor: _line),
+        if (_progress < 100 && _ready) LinearProgressIndicator(value: _progress / 100, minHeight: 2, color: _mint, backgroundColor: _line),
+        if (_error != null) Padding(padding: const EdgeInsets.all(10), child: Text('تعذر تحميل صفحة البث: $_error', style: const TextStyle(color: Colors.orangeAccent, fontSize: 10))),
+        Expanded(child: WebViewWidget(controller: _web)),
+      ]),
     ),
-    body: Column(children: [
-      Container(width: double.infinity, color: _panel, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), child: const Text('صفحة خارجية داخل التطبيق. اضغط على الفيديو في الصفحة لبدء التشغيل. لا تدخل بيانات حسابك أو كلمات مرور في صفحات غير موثوقة.', style: TextStyle(color: _muted, fontSize: 10, height: 1.5))),
-      if (_progress < 100) LinearProgressIndicator(value: _progress / 100, minHeight: 2, color: _mint, backgroundColor: _line),
-      if (_error != null) Padding(padding: const EdgeInsets.all(10), child: Text('تعذر تحميل جزء من الصفحة: $_error', style: const TextStyle(color: Colors.orangeAccent, fontSize: 10))),
-      Expanded(child: WebViewWidget(controller: _web)),
-    ]),
   );
 }
 
