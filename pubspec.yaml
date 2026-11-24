@@ -1,7 +1,7 @@
 name: dfish_live
 description: DFISH LIVE - Arabic football and entertainment companion.
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.2+3
 environment:
   sdk: '>=3.13.0 <4.0.0'
 dependencies:
@@ -19,6 +19,7 @@ dependencies:
   cloud_firestore: ^7.2.0
   video_player: ^2.14.1
   webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.14.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
