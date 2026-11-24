@@ -13,6 +13,7 @@ import 'services/football_api.dart';
 import 'services/firebase_runtime.dart';
 import 'config/api_config.dart';
 import 'config/league_catalog.dart';
+import 'utils/arabic_time.dart';
 
 const Color cBg = Color(0xFF0B1018);
 const Color cPanel = Color(0xFF121B27);
@@ -153,7 +154,7 @@ class MatchData {
     if (isPostponed) return 'مؤجلة';
     if (isCancelled) return 'ملغاة';
     if (status == 'ABD') return 'متوقفة';
-    if (kickoff.length >= 16) return kickoff.substring(11, 16);
+    if (kickoff.length >= 16) return formatArabicTime(kickoff);
     return 'قريباً';
   }
 }
