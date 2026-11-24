@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui' as ui show FontFeature, TextDirection;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -215,8 +217,10 @@ class NetworkBadge extends StatelessWidget {
           ? Text(label.isEmpty ? '?' : label.substring(0, 1), style: const TextStyle(color: cText, fontWeight: FontWeight.w700))
           : ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: Image.network(url, width: size - 5, height: size - 5, fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Text(label.isEmpty ? '?' : label.substring(0, 1), style: const TextStyle(color: cText, fontWeight: FontWeight.w700))),
+              child: CachedNetworkImage(imageUrl: url, width: size - 5, height: size - 5, fit: BoxFit.contain,
+                fadeInDuration: const Duration(milliseconds: 120),
+                placeholder: (_, __) => SizedBox(width: size - 5, height: size - 5),
+                errorWidget: (_, __, ___) => Text(label.isEmpty ? '?' : label.substring(0, 1), style: const TextStyle(color: cText, fontWeight: FontWeight.w700))),
             ),
     );
   }
@@ -278,9 +282,36 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
-  final _pages = const [HomeScreen(), MatchesScreen(), StandingsScreen(), StreamMatchesScreen(), MoreScreen()];
+  final GlobalKey<_HomeScreenState> _homeKey = GlobalKey<_HomeScreenState>();
+  final GlobalKey<_MatchesScreenState> _matchesKey = GlobalKey<_MatchesScreenState>();
+  late final List<Widget> _pages = [
+    HomeScreen(key: _homeKey),
+    MatchesScreen(key: _matchesKey),
+    const StandingsScreen(),
+    const StreamMatchesScreen(),
+    const MoreScreen(),
+  ];
+  Timer? _liveRefreshTimer;
   final _titles = const ['الرئيسية', 'المباريات', 'البطولات', 'البث', 'المزيد'];
   final _icons = const [LucideIcons.house, LucideIcons.calendarDays, LucideIcons.trophy, LucideIcons.radioTower, LucideIcons.layoutGrid];
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh only the visible football tab. A five-minute interval is
+    // deliberately conservative to protect daily API quotas.
+    _liveRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (!mounted || WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      if (_index == 0) _homeKey.currentState?.refreshLive();
+      if (_index == 1) _matchesKey.currentState?.refreshLiveIfToday();
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveRefreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -296,7 +327,7 @@ class _AppShellState extends State<AppShell> {
     bottomNavigationBar: Container(
       decoration: const BoxDecoration(color: cPanel, border: Border(top: BorderSide(color: cLine))),
       child: SafeArea(top: false, child: Row(children: List.generate(_pages.length, (i) => Expanded(child: InkWell(
-        onTap: () => setState(() => _index = i),
+        onTap: () { setState(() => _index = i); if (i == 0) _homeKey.currentState?.refreshLive(); if (i == 1) _matchesKey.currentState?.refreshLiveIfToday(); },
         child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(_icons[i], size: 21, color: _index == i ? cMint : cMuted),
           const SizedBox(height: 4),
@@ -325,7 +356,8 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<List<dynamic>> _future;
   @override
   void initState() { super.initState(); _future = FootballApi.instance.fixtures(date: nowAden()); }
-  void _reload() => setState(() => _future = FootballApi.instance.fixtures());
+  void _reload() => setState(() => _future = FootballApi.instance.fixtures(date: nowAden()));
+  void refreshLive() { if (mounted) setState(() => _future = FootballApi.instance.fixtures(date: nowAden())); }
 
   @override
   Widget build(BuildContext context) => RefreshIndicator(
@@ -359,9 +391,10 @@ class _HomeScreenState extends State<HomeScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل مباريات اليوم');
           if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: _reload);
           final matches = (snapshot.data ?? []).map((e) => MatchData(Map<String, dynamic>.from(e as Map))).toList();
-          if (matches.isEmpty) return const EmptyPanel(title: 'لا توجد مباريات مدرجة اليوم', subtitle: 'قد لا تكون هناك مباريات أو قد لا يغطي المصدر هذه البطولة.');
+          final stale = FootballApi.instance.lastResponseWasStale;
+          if (matches.isEmpty) return Column(children: [if (stale) const CacheNotice(), const EmptyPanel(title: 'لا توجد مباريات مدرجة اليوم', subtitle: 'قد لا تكون هناك مباريات أو قد لا يغطي المصدر هذه البطولة.')]);
           final selected = matches.where((m) => m.isLive).toList()..addAll(matches.where((m) => !m.isLive).take(5));
-          return Column(children: selected.take(6).map((m) => Padding(padding: const EdgeInsets.only(bottom: 10), child: MatchTile(match: m))).toList());
+          return Column(children: [if (stale) const CacheNotice(), ...selected.take(6).map((m) => Padding(padding: const EdgeInsets.only(bottom: 10), child: MatchTile(match: m)))]);
         },
       ),
       const SizedBox(height: 12),
@@ -389,6 +422,25 @@ class FeatureChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), decoration: BoxDecoration(color: cPanel, borderRadius: BorderRadius.circular(12), border: Border.all(color: cLine)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, color: cMint, size: 16), const SizedBox(width: 7), Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))]));
 }
 
+class CacheNotice extends StatelessWidget {
+  const CacheNotice({super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: const Color(0xFF493A1E).withValues(alpha: .35),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: const Color(0xFFD7A64A).withValues(alpha: .45)),
+    ),
+    child: const Row(children: [
+      Icon(LucideIcons.wifiOff, size: 15, color: Color(0xFFE0B45E)),
+      SizedBox(width: 8),
+      Expanded(child: Text('تعرض آخر بيانات محفوظة؛ التحديث متوقف مؤقتاً حتى عودة خدمة البيانات.', style: TextStyle(color: Color(0xFFE7D4AA), fontSize: 10, height: 1.5))),
+    ]),
+  );
+}
+
 // ---------- Matches ----------
 class MatchesScreen extends StatefulWidget {
   const MatchesScreen({super.key});
@@ -403,6 +455,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
   @override
   void initState() { super.initState(); _future = FootballApi.instance.fixtures(date: _date); }
   void _load() => setState(() => _future = FootballApi.instance.fixtures(date: _date));
+  void refreshLiveIfToday() { final today = nowAden(); if (mounted && _date.year == today.year && _date.month == today.month && _date.day == today.day) { setState(() => _future = FootballApi.instance.fixtures(date: _date)); } }
 
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
@@ -428,17 +481,20 @@ class _MatchesScreenState extends State<MatchesScreen> {
         if (_filter == 'انتهت') list = list.where((m) => m.isFinished).toList();
         if (_filter == 'مؤجلة') list = list.where((m) => m.isPostponed).toList();
         if (_filter == 'ملغاة') list = list.where((m) => m.isCancelled).toList();
-        if (list.isEmpty) return const EmptyPanel(title: 'لا توجد مباريات في هذا التصنيف', subtitle: 'غيّر اليوم أو مرشح المباريات.');
+        if (list.isEmpty) return Column(children: [if (FootballApi.instance.lastResponseWasStale) const CacheNotice(), const EmptyPanel(title: 'لا توجد مباريات في هذا التصنيف', subtitle: 'غيّر اليوم أو مرشح المباريات.')]);
         final groups = <String, List<MatchData>>{};
         for (final match in list) { groups.putIfAbsent('${match.leagueId}|${match.league}|${match.country}|${match.leagueLogo}', () => []).add(match); }
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: groups.entries.map((entry) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (FootballApi.instance.lastResponseWasStale) const CacheNotice(),
+          ...groups.entries.map((entry) {
           final parts = entry.key.split('|');
           return Padding(padding: const EdgeInsets.only(bottom: 14), child: Column(children: [
             Row(children: [NetworkBadge(url: parts.length > 3 ? parts[3] : '', label: parts.length > 1 ? parts[1] : 'بطولة', size: 30), const SizedBox(width: 9), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(parts.length > 1 ? parts[1] : 'بطولة', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)), Text(parts.length > 2 ? parts[2] : '', style: const TextStyle(color: cMuted, fontSize: 10))])), const Icon(LucideIcons.chevronLeft, color: cMuted, size: 17)]),
             const SizedBox(height: 8),
             ...entry.value.map((m) => Padding(padding: const EdgeInsets.only(bottom: 8), child: MatchTile(match: m))),
           ]));
-        }).toList());
+        }),
+        ]);
       },
     ),
   ]);
