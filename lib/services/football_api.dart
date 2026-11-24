@@ -105,6 +105,9 @@ class FootballApi {
 
   String _translateApiError(String message) {
     final lower = message.toLowerCase();
+    if (lower.contains('page') && lower.contains('do not exist')) {
+      return 'خطأ في معامل ترقيم النتائج من النسخة القديمة. حدّث التطبيق إلى الإصدار الجديد ثم أعد المحاولة.';
+    }
     if (lower.contains('free plans do not have access') ||
         lower.contains('not available on the free plan')) {
       return 'الخطة المجانية لا تتيح هذا الموسم. في 2026 جرّب المواسم ${ApiConfig.freePlanSeasons.first} إلى ${ApiConfig.freePlanSeasons.last}، أو استخدم خطة تدعم الموسم الحالي.';
@@ -149,22 +152,18 @@ class FootballApi {
     } else {
       params['date'] = DateFormat('yyyy-MM-dd').format(requestedDate);
     }
-    // اجمع صفحات اليوم أولاً ثم صفِّ المسابقات حتى لا تختفي مباريات
-    // البطولات القارية التي تقع في الصفحات التالية من استجابة المزود.
-    final rows = <Map<String, dynamic>>[];
-    var page = 1;
-    var totalPages = 1;
-    do {
-      final pageParams = <String, String>{...params, 'page': '$page'};
-      final data = await get('fixtures', pageParams);
-      final responseRows = (data['response'] as List?) ?? const [];
-      rows.addAll(responseRows.whereType<Map>().map((row) => Map<String, dynamic>.from(row)));
-      final paging = data['paging'];
-      if (paging is Map) totalPages = (paging['total'] as num?)?.toInt() ?? 1;
-      page++;
-    } while (page <= totalPages && page <= 30);
 
-    final filtered = rows.where(LeagueCatalog.isAllowedFixture).toList();
+    // مهم: endpoint fixtures لا يستخدم معامل page في API-Football.
+    // إرسال page يسبب الخطأ الظاهر للمستخدم: "The Page field do not exist".
+    // طلب التاريخ مع timezone يعيد قائمة مباريات التاريخ في استجابة واحدة.
+    final data = await get('fixtures', params);
+    final rows = (data['response'] as List?) ?? const [];
+    final filtered = rows
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where(LeagueCatalog.isAllowedFixture)
+        .toList();
+
     filtered.sort((a, b) {
       final aDate = a['fixture']?['date']?.toString() ?? '';
       final bDate = b['fixture']?['date']?.toString() ?? '';
