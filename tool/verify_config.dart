@@ -1,13 +1,12 @@
 import 'dart:io';
 
 void main() {
-  final api = File('lib/config/api_config.dart').readAsStringSync();
   final firebase = File('lib/firebase_options.dart').readAsStringSync();
   final problems = <String>[];
+  final apiKey = Platform.environment['API_FOOTBALL_KEY'] ?? '';
 
-  if (api.contains('PASTE_NEW_API_FOOTBALL_KEY_HERE') ||
-      api.contains('YOUR_API_KEY')) {
-    problems.add('أضف مفتاح API-Football الجديد في lib/config/api_config.dart');
+  if (apiKey.trim().isEmpty) {
+    problems.add('أضف API_FOOTBALL_KEY إلى GitHub Secrets.');
   }
   for (final placeholder in [
     'YOUR_FIREBASE_API_KEY',
@@ -20,7 +19,6 @@ void main() {
       break;
     }
   }
-
   if (problems.isNotEmpty) {
     stderr.writeln('لم يبدأ البناء لأن إعدادات المشروع ناقصة:');
     for (final problem in problems.toSet()) {
@@ -29,6 +27,5 @@ void main() {
     exitCode = 1;
     return;
   }
-
-  stdout.writeln('تم العثور على إعداد API-Football وFirebase.');
+  stdout.writeln('تم التحقق من إعدادات Firebase ووجود مفتاح API-Football.');
 }
