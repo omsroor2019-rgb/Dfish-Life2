@@ -11,6 +11,8 @@ import 'admin/admin_portal.dart';
 import 'streams/streams_screen.dart';
 import 'services/football_api.dart';
 import 'services/firebase_runtime.dart';
+import 'config/api_config.dart';
+import 'config/league_catalog.dart';
 
 const Color cBg = Color(0xFF0B1018);
 const Color cPanel = Color(0xFF121B27);
@@ -86,9 +88,9 @@ class MatchData {
         status = json['fixture']?['status']?['short']?.toString() ?? 'NS',
         statusLong = json['fixture']?['status']?['long']?.toString() ?? '',
         leagueId = (json['league']?['id'] as num?)?.toInt() ?? 0,
-        league = json['league']?['name']?.toString() ?? 'بطولة',
+        league = LeagueCatalog.displayNameFor(json['league']?['country']?.toString() ?? '', json['league']?['name']?.toString() ?? 'بطولة'),
         leagueLogo = json['league']?['logo']?.toString() ?? '',
-        country = json['league']?['country']?.toString() ?? '',
+        country = LeagueCatalog.displayCountryName(json['league']?['country']?.toString() ?? ''),
         home = json['teams']?['home']?['name']?.toString() ?? 'الفريق الأول',
         away = json['teams']?['away']?['name']?.toString() ?? 'الفريق الثاني',
         homeId = (json['teams']?['home']?['id'] as num?)?.toInt() ?? 0,
@@ -126,7 +128,7 @@ class MatchData {
   bool get isFinished => const {'FT', 'AET', 'PEN', 'AWD', 'WO'}.contains(status);
   String get score => homeGoals == null || awayGoals == null ? '—' : '$homeGoals - $awayGoals';
   String get timeLabel {
-    if (isLive) return elapsed == null ? statusLong : "${elapsed!}'";
+    if (isLive) return elapsed == null ? _footballText(statusLong) : "${elapsed!}'";
     if (isFinished) return 'انتهت';
     if (kickoff.length >= 16) return kickoff.substring(11, 16);
     return 'قريباً';
@@ -134,6 +136,40 @@ class MatchData {
 }
 
 String _mapText(dynamic value, [String fallback = '—']) => value == null || value.toString().trim().isEmpty ? fallback : value.toString();
+
+String _footballText(dynamic value) {
+  final raw = value?.toString().trim() ?? '';
+  if (raw.isEmpty) return '—';
+  const labels = <String, String>{
+    'match not started': 'لم تبدأ', 'not started': 'لم تبدأ',
+    'first half': 'الشوط الأول', 'first half finished': 'نهاية الشوط الأول',
+    'halftime': 'استراحة بين الشوطين', 'second half': 'الشوط الثاني',
+    'extra time': 'وقت إضافي', 'break time': 'استراحة إضافية',
+    'penalty in progress': 'ركلات الترجيح', 'match finished': 'انتهت المباراة',
+    'match finished after extra time': 'انتهت بعد الوقت الإضافي',
+    'match finished after penalties': 'انتهت بركلات الترجيح',
+    'match suspended': 'معلّقة', 'match interrupted': 'متوقفة مؤقتاً',
+    'match postponed': 'مؤجلة', 'match cancelled': 'ملغاة',
+    'goal': 'هدف', 'own goal': 'هدف عكسي', 'penalty': 'ركلة جزاء',
+    'missed penalty': 'ركلة جزاء ضائعة', 'card': 'بطاقة',
+    'yellow card': 'بطاقة صفراء', 'red card': 'بطاقة حمراء',
+    'subst': 'تبديل', 'substitution': 'تبديل', 'var': 'حكم الفيديو',
+    'goalkeeper': 'حارس مرمى', 'defender': 'مدافع', 'midfielder': 'لاعب وسط',
+    'attacker': 'مهاجم', 'forward': 'مهاجم',
+    'shots on goal': 'تسديدات على المرمى', 'shots off goal': 'تسديدات خارج المرمى',
+    'total shots': 'إجمالي التسديدات', 'blocked shots': 'تسديدات متصدّى لها',
+    'shots insidebox': 'تسديدات من داخل المنطقة', 'shots outsidebox': 'تسديدات من خارج المنطقة',
+    'fouls': 'الأخطاء', 'corner kicks': 'الركلات الركنية', 'offsides': 'التسلل',
+    'ball possession': 'الاستحواذ', 'yellow cards': 'البطاقات الصفراء',
+    'red cards': 'البطاقات الحمراء', 'goalkeeper saves': 'تصديات الحارس',
+    'total passes': 'إجمالي التمريرات', 'passes accurate': 'التمريرات الصحيحة',
+    'passes %': 'دقة التمرير', 'expected_goals': 'الأهداف المتوقعة',
+    'loan': 'إعارة', 'free': 'انتقال مجاني', 'transfer': 'انتقال',
+    'regular season': 'الموسم العادي',
+  };
+  return labels[raw.toLowerCase()] ?? raw;
+}
+
 dynamic _firstOrEmpty(dynamic value) => value is List && value.isNotEmpty ? value.first : <String, dynamic>{};
 
 class NetworkBadge extends StatelessWidget {
@@ -429,7 +465,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           const SizedBox(height: 18),
           Row(children: [Expanded(child: _bigTeam(m.home, m.homeLogo)), Column(children: [Text(m.score, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)), const SizedBox(height: 4), Text(m.timeLabel, style: TextStyle(color: m.isLive ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 11))]), Expanded(child: _bigTeam(m.away, m.awayLogo))]),
           const SizedBox(height: 12),
-          Text(m.statusLong, style: const TextStyle(color: cMuted, fontSize: 11)),
+          Text(_footballText(m.statusLong), style: const TextStyle(color: cMuted, fontSize: 11)),
         ])),
         const SizedBox(height: 16),
         Row(children: [
@@ -457,7 +493,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       if (endpoint.endsWith('events')) return Column(children: rows.map((e) {
         final x = Map<String, dynamic>.from(e as Map);
         final time = x['time']?['elapsed']?.toString() ?? '';
-        final detail = _mapText(x['detail'], _mapText(x['type'], 'حدث'));
+        final detail = _footballText(x['detail'] ?? x['type'] ?? 'حدث');
         final player = x['player']?['name']?.toString() ?? '';
         final team = x['team']?['name']?.toString() ?? '';
         return Panel(padding: const EdgeInsets.all(12), child: Row(children: [Container(width: 40, padding: const EdgeInsets.symmetric(vertical: 7), decoration: BoxDecoration(color: cPanel2, borderRadius: BorderRadius.circular(9)), child: Text(time.isEmpty ? '—' : "$time'", textAlign: TextAlign.center, style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 11))), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(detail, style: const TextStyle(fontWeight: FontWeight.w700)), Text('$player${team.isEmpty ? '' : ' · $team'}', style: const TextStyle(color: cMuted, fontSize: 10))]))]));
@@ -474,15 +510,15 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         final x = Map<String, dynamic>.from(e as Map);
         final team = x['team']?['name']?.toString() ?? 'الفريق';
         final stats = (x['statistics'] as List?) ?? [];
-        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 8), ...stats.map((s) => Row(children: [Expanded(child: Text(_mapText(s['type']), style: const TextStyle(fontSize: 11, color: cMuted))), Text(_mapText(s['value']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12))])),])));
+        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 8), ...stats.map((s) => Row(children: [Expanded(child: Text(_footballText(s['type']), style: const TextStyle(fontSize: 11, color: cMuted))), Text(_mapText(s['value']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12))])),])));
       }).toList());
     },
   );
 
-  Widget _playerRow(dynamic player) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Text(_mapText(player['number'], ''), style: const TextStyle(color: cMint, fontSize: 11)), const SizedBox(width: 9), Expanded(child: Text(_mapText(player['name']), style: const TextStyle(fontSize: 11))), Text(_mapText(player['pos'], ''), style: const TextStyle(color: cMuted, fontSize: 10))]));
+  Widget _playerRow(dynamic player) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Text(_mapText(player['number'], ''), style: const TextStyle(color: cMint, fontSize: 11)), const SizedBox(width: 9), Expanded(child: Text(_mapText(player['name']), style: const TextStyle(fontSize: 11))), Text(_footballText(player['pos']), style: const TextStyle(color: cMuted, fontSize: 10))]));
 }
 
-// ---------- Standings and scorers ----------
+// ---------- البطولات والترتيب والهدافون وصناعة الأهداف ----------
 class StandingsScreen extends StatefulWidget {
   const StandingsScreen({super.key});
   @override
@@ -491,78 +527,291 @@ class StandingsScreen extends StatefulWidget {
 
 class _StandingsScreenState extends State<StandingsScreen> {
   late Future<List<dynamic>> _leagues;
-  Map<String, dynamic>? _selected;
+  int _season = ApiConfig.freePlanSeasons.last;
   int _mode = 0;
-  @override
-  void initState() { super.initState(); _leagues = FootballApi.instance.leagues(); }
+  int? _selectedLeagueId;
 
   @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
-    const SectionHeading('البطولات', subtitle: 'ترتيب الأندية والهدافون'),
-    const SizedBox(height: 14),
-    FutureBuilder<List<dynamic>>(
-      future: _leagues,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل البطولات المتاحة');
-        if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _leagues = FootballApi.instance.leagues()));
-        final all = (snapshot.data ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        if (_selected == null && all.isNotEmpty) _selected = all.first;
-        if (all.isEmpty) return const EmptyPanel(title: 'قائمة البطولات غير متاحة', subtitle: 'تحقق من ربط API-Football.');
-        final league = _selected?['league'] ?? {};
-        final seasons = (_selected?['seasons'] as List?) ?? [];
-        final currentSeason = seasons.cast<Map>().where((s) => s['current'] == true).toList();
-        final season = currentSeason.isNotEmpty ? (currentSeason.first['year'] as num?)?.toInt() ?? nowAden().year : nowAden().year;
-        final id = (league['id'] as num?)?.toInt() ?? 0;
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          DropdownButtonFormField<int>(
-            value: id == 0 ? null : id,
-            dropdownColor: cPanel,
-            decoration: const InputDecoration(labelText: 'اختر البطولة'),
-            items: all.take(100).map((l) { final x = l['league'] ?? {}; return DropdownMenuItem<int>(value: (x['id'] as num?)?.toInt(), child: Text(_mapText(x['name'], 'بطولة'), overflow: TextOverflow.ellipsis)); }).toList(),
-            onChanged: (value) => setState(() => _selected = all.firstWhere((e) => (e['league']?['id'] as num?)?.toInt() == value)),
-          ),
+  void initState() {
+    super.initState();
+    _loadLeagues();
+  }
+
+  void _loadLeagues() {
+    _selectedLeagueId = null;
+    _leagues = FootballApi.instance.leagues(season: _season);
+  }
+
+  String _coverageKey() => switch (_mode) {
+        0 => 'standings',
+        1 => 'top_scorers',
+        _ => 'top_assists',
+      };
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        children: [
+          const SectionHeading('البطولات', subtitle: 'الدوريات الخليجية واليمنية والدرجة الأولى في أوروبا'),
           const SizedBox(height: 10),
-          Row(children: [_modeChip('الترتيب', 0), const SizedBox(width: 6), _modeChip('الهدافون', 1), const SizedBox(width: 6), _modeChip('الصناعة', 2)]),
+          Panel(
+            padding: const EdgeInsets.all(11),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(LucideIcons.info, color: cMint, size: 17),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'إذا كان حسابك على الخطة المجانية في 2026 فالمواسم المتاحة هي ${ApiConfig.freePlanSeasons.first}–${ApiConfig.freePlanSeasons.last}. بيانات الموسم الحالي تحتاج خطة تتيحه من مزوّد البيانات.',
+                style: const TextStyle(color: cMuted, fontSize: 10, height: 1.6),
+              )),
+            ]),
+          ),
           const SizedBox(height: 12),
-          _standingsData(id, season),
-        ]);
-      },
-    ),
-  ]);
+          FutureBuilder<List<dynamic>>(
+            future: _leagues,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LoadingPanel(label: 'جاري تحميل الدوريات المتاحة لهذا الموسم');
+              }
+              if (snapshot.hasError) {
+                return ErrorPanel(
+                  message: snapshot.error.toString(),
+                  onRetry: () => setState(_loadLeagues),
+                );
+              }
+              final all = (snapshot.data ?? const <dynamic>[])
+                  .whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList();
+              if (all.isEmpty) {
+                return const EmptyPanel(
+                  title: 'لا توجد دوريات متاحة لهذا الموسم',
+                  subtitle: 'تحقق من مفتاح API-Football وخطة الحساب، أو جرّب موسماً آخر من المواسم المجانية.',
+                );
+              }
 
-  Widget _modeChip(String title, int value) => Expanded(child: InkWell(onTap: () => setState(() => _mode = value), child: Container(padding: const EdgeInsets.all(11), decoration: BoxDecoration(color: _mode == value ? cMint.withValues(alpha: .13) : cPanel, borderRadius: BorderRadius.circular(11), border: Border.all(color: _mode == value ? cMint : cLine)), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: _mode == value ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 12)))));
+              Map<String, dynamic> selected;
+              final selectedIndex = all.indexWhere(
+                (e) => (e['league']?['id'] as num?)?.toInt() == _selectedLeagueId,
+              );
+              if (selectedIndex >= 0) {
+                selected = all[selectedIndex];
+              } else {
+                selected = all.first;
+                _selectedLeagueId = (selected['league']?['id'] as num?)?.toInt();
+              }
+              final league = Map<String, dynamic>.from(selected['league'] as Map);
+              final leagueId = (league['id'] as num?)?.toInt() ?? 0;
+              final coverageOk = LeagueCatalog.supports(selected, _season, _coverageKey());
+              final arabicName = LeagueCatalog.displayName(selected);
+              final arabicCountry = LeagueCatalog.displayCountry(selected);
 
-  Widget _standingsData(int id, int season) => FutureBuilder<List<dynamic>>(
-    key: ValueKey('$id-$season-$_mode'),
-    future: _mode == 0 ? FootballApi.instance.standings(id, season) : (_mode == 1 ? FootballApi.instance.topScorers(id, season) : FootballApi.instance.topAssists(id, season)),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل بيانات البطولة');
-      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() {}));
-      final response = snapshot.data ?? [];
-      if (response.isEmpty) return const EmptyPanel(title: 'لا توجد بيانات متاحة', subtitle: 'قد تكون بيانات هذه البطولة غير مغطاة في الموسم المختار.');
-      if (_mode == 0) {
-        final league = response.first['league'] ?? {};
-        final rawStandings = league['standings'];
-        final table = rawStandings is List && rawStandings.isNotEmpty && rawStandings.first is List
-            ? rawStandings.first as List
-            : <dynamic>[];
-        return Panel(padding: const EdgeInsets.all(10), child: Column(children: [
-          Row(children: const [SizedBox(width: 25, child: Text('#', style: TextStyle(color: cMuted, fontSize: 10))), Expanded(child: Text('النادي', style: TextStyle(color: cMuted, fontSize: 10))), Text('لعب', style: TextStyle(color: cMuted, fontSize: 10)), SizedBox(width: 28, child: Text('ف', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 10))), SizedBox(width: 28, child: Text('ن', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 10)))]),
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                DropdownButtonFormField<int>(
+                  value: _season,
+                  dropdownColor: cPanel,
+                  decoration: const InputDecoration(labelText: 'الموسم'),
+                  items: ApiConfig.freePlanSeasons.reversed.map((year) => DropdownMenuItem<int>(
+                    value: year,
+                    child: Text('$year / ${year + 1}', style: const TextStyle(fontSize: 13)),
+                  )).toList(),
+                  onChanged: (value) {
+                    if (value == null || value == _season) return;
+                    setState(() { _season = value; _loadLeagues(); });
+                  },
+                ),
+                const SizedBox(height: 9),
+                DropdownButtonFormField<int>(
+                  value: leagueId == 0 ? null : leagueId,
+                  isExpanded: true,
+                  dropdownColor: cPanel,
+                  decoration: const InputDecoration(labelText: 'اختر الدوري'),
+                  items: all.map((item) {
+                    final data = item['league'] as Map;
+                    final itemId = (data['id'] as num?)?.toInt();
+                    return DropdownMenuItem<int>(
+                      value: itemId,
+                      child: Text(
+                        '${LeagueCatalog.displayName(item)} · ${LeagueCatalog.displayCountry(item)}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    );
+                  }).where((item) => item.value != null).toList(),
+                  onChanged: (value) => setState(() => _selectedLeagueId = value),
+                ),
+                const SizedBox(height: 10),
+                Row(children: [
+                  _modeChip('الترتيب', 0),
+                  const SizedBox(width: 6),
+                  _modeChip('الهدافون', 1),
+                  const SizedBox(width: 6),
+                  _modeChip('صناعة الأهداف', 2),
+                ]),
+                const SizedBox(height: 12),
+                if (!coverageOk)
+                  EmptyPanel(
+                    title: 'هذه الإحصائية غير مغطاة',
+                    subtitle: 'لا يوفر مزوّد البيانات ${_mode == 0 ? 'جدول الترتيب' : _mode == 1 ? 'قائمة الهدافين' : 'قائمة صانعي الأهداف'} لهذا الدوري في موسم $_season.',
+                  )
+                else
+                  _standingsData(leagueId, _season, arabicName),
+              ]);
+            },
+          ),
+        ],
+      );
+
+  Widget _modeChip(String title, int value) => Expanded(
+        child: InkWell(
+          onTap: () => setState(() => _mode = value),
+          borderRadius: BorderRadius.circular(11),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 12),
+            decoration: BoxDecoration(
+              color: _mode == value ? cMint.withValues(alpha: .13) : cPanel,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: _mode == value ? cMint : cLine),
+            ),
+            child: Text(title, textAlign: TextAlign.center,
+              style: TextStyle(color: _mode == value ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 11)),
+          ),
+        ),
+      );
+
+  Widget _standingsData(int id, int season, String leagueName) => FutureBuilder<List<dynamic>>(
+        key: ValueKey('$id-$season-$_mode'),
+        future: _mode == 0
+            ? FootballApi.instance.standings(id, season)
+            : (_mode == 1
+                ? FootballApi.instance.topScorers(id, season)
+                : FootballApi.instance.topAssists(id, season)),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const LoadingPanel(label: 'جاري تحميل بيانات الدوري');
+          }
+          if (snapshot.hasError) {
+            return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() {}));
+          }
+          final response = snapshot.data ?? const <dynamic>[];
+          if (response.isEmpty) {
+            return const EmptyPanel(
+              title: 'لا توجد بيانات متاحة',
+              subtitle: 'قد لا تتوفر هذه الإحصائية لهذا الدوري أو الموسم في خطة حسابك.',
+            );
+          }
+          if (_mode == 0) return _buildAllStandings(response, leagueName);
+          return _buildPlayerRanking(response);
+        },
+      );
+
+  Widget _buildAllStandings(List<dynamic> response, String leagueName) {
+    final first = response.first;
+    if (first is! Map) {
+      return const EmptyPanel(title: 'استجابة غير مكتملة', subtitle: 'لم يصل جدول الترتيب بالشكل المتوقع.');
+    }
+    final league = first['league'];
+    final rawGroups = league is Map ? league['standings'] : null;
+    if (rawGroups is! List || rawGroups.isEmpty) {
+      return const EmptyPanel(title: 'جدول الترتيب غير متاح', subtitle: 'لا يوفر مزوّد البيانات ترتيب هذا الدوري لهذا الموسم.');
+    }
+    final groups = rawGroups.whereType<List>().toList();
+    if (groups.isEmpty) {
+      return const EmptyPanel(title: 'جدول الترتيب غير متاح', subtitle: 'لا توجد مجموعات ترتيب منشورة.');
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('$leagueName · $_season / ${_season + 1}', style: const TextStyle(color: cMint, fontSize: 12, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      ...groups.map((group) => _standingsTable(group)),
+    ]);
+  }
+
+  Widget _standingsTable(List<dynamic> rows) {
+    final groupName = rows.isNotEmpty && rows.first is Map ? (rows.first as Map)['group']?.toString() : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Panel(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
+        child: Column(children: [
+          if (groupName != null && groupName.isNotEmpty)
+            Padding(padding: const EdgeInsets.only(bottom: 8), child: Align(alignment: Alignment.centerRight, child: Text(_footballText(groupName), style: const TextStyle(color: cMint, fontSize: 11, fontWeight: FontWeight.w800)))),
+          Row(children: const [
+            SizedBox(width: 20, child: Text('#', style: TextStyle(color: cMuted, fontSize: 9))),
+            Expanded(child: Text('الفريق', style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 25, child: Text('لعب', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 22, child: Text('ف', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 22, child: Text('ت', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 22, child: Text('خ', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 28, child: Text('+/−', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            SizedBox(width: 28, child: Text('نقاط', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+          ]),
           const Divider(color: cLine),
-          ...table.map((r) => Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [SizedBox(width: 25, child: Text(_mapText(r['rank']), style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 11))), Expanded(child: Row(children: [NetworkBadge(url: r['team']?['logo']?.toString() ?? '', label: r['team']?['name']?.toString() ?? '', size: 26), const SizedBox(width: 7), Expanded(child: Text(_mapText(r['team']?['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)))])), Text(_mapText(r['all']?['played']), style: const TextStyle(fontSize: 11)), SizedBox(width: 28, child: Text(_mapText(r['all']?['win']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 11))), SizedBox(width: 28, child: Text(_mapText(r['points']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)))]))),
-        ]));
-      }
-      return Column(children: response.take(30).map((r) {
-        final player = r['player'] ?? {};
-        final stats = _firstOrEmpty(r['statistics']);
-        final goals = stats['goals'] ?? {};
-        final team = stats['team'] ?? {};
-        final metric = _mode == 1 ? goals['total'] : goals['assists'];
-        final metricLabel = _mode == 1 ? 'هدف' : 'صناعة';
-        return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(child: Row(children: [NetworkBadge(url: player['photo']?.toString() ?? '', label: player['name']?.toString() ?? '', size: 42), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_mapText(player['name']), style: const TextStyle(fontWeight: FontWeight.w800)), Text(_mapText(team['name']), style: const TextStyle(color: cMuted, fontSize: 10))])), Text(_mapText(metric), style: const TextStyle(color: cMint, fontSize: 18, fontWeight: FontWeight.w900)), const SizedBox(width: 4), Text(metricLabel, style: const TextStyle(color: cMuted, fontSize: 10))])));
-      }).toList());
-    },
-  );
+          ...rows.whereType<Map>().map((row) {
+            final item = Map<String, dynamic>.from(row);
+            final team = item['team'] is Map ? Map<String, dynamic>.from(item['team']) : <String, dynamic>{};
+            final all = item['all'] is Map ? Map<String, dynamic>.from(item['all']) : <String, dynamic>{};
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Row(children: [
+                SizedBox(width: 20, child: Text(_mapText(item['rank']), style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 10))),
+                Expanded(child: Row(children: [
+                  NetworkBadge(url: team['logo']?.toString() ?? '', label: team['name']?.toString() ?? '', size: 23),
+                  const SizedBox(width: 5),
+                  Expanded(child: Text(_mapText(team['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
+                ])),
+                SizedBox(width: 25, child: Text(_mapText(all['played']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 22, child: Text(_mapText(all['win']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 22, child: Text(_mapText(all['draw']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 22, child: Text(_mapText(all['lose']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 28, child: Text(_mapText(item['goalsDiff']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 28, child: Text(_mapText(item['points']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900))),
+              ]),
+            );
+          }),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildPlayerRanking(List<dynamic> response) {
+    final entries = response.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    double score(Map<String, dynamic> row) {
+      final stats = _firstOrEmpty(row['statistics']);
+      final goals = stats is Map ? stats['goals'] : null;
+      final raw = _mode == 1 && goals is Map ? goals['total'] : (goals is Map ? goals['assists'] : null);
+      if (raw is num) return raw.toDouble();
+      return double.tryParse(raw?.toString() ?? '') ?? -1;
+    }
+    entries.sort((a, b) => score(b).compareTo(score(a)));
+    if (entries.isEmpty) return const EmptyPanel(title: 'لا توجد إحصائيات لاعبين', subtitle: 'لم تصل قائمة اللاعبين لهذا الموسم.');
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_mode == 1 ? 'ترتيب الهدافين · $_season / ${_season + 1}' : 'ترتيب صانعي الأهداف · $_season / ${_season + 1}', style: const TextStyle(color: cMint, fontSize: 12, fontWeight: FontWeight.w800))),
+      ...entries.take(30).toList().asMap().entries.map((entry) {
+        final rank = entry.key + 1;
+        final row = entry.value;
+        final player = row['player'] is Map ? Map<String, dynamic>.from(row['player']) : <String, dynamic>{};
+        final stats = _firstOrEmpty(row['statistics']);
+        final stat = stats is Map ? stats : <String, dynamic>{};
+        final goals = stat['goals'] is Map ? stat['goals'] as Map : <String, dynamic>{};
+        final team = stat['team'] is Map ? stat['team'] as Map : <String, dynamic>{};
+        final rawMetric = _mode == 1 ? goals['total'] : goals['assists'];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Panel(child: Row(children: [
+            SizedBox(width: 22, child: Text('$rank', style: const TextStyle(color: cMint, fontWeight: FontWeight.w900))),
+            NetworkBadge(url: player['photo']?.toString() ?? '', label: player['name']?.toString() ?? '', size: 42),
+            const SizedBox(width: 9),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_mapText(player['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+              Text(_mapText(team['name']), style: const TextStyle(color: cMuted, fontSize: 10)),
+            ])),
+            Text(_mapText(rawMetric, '0'), style: const TextStyle(color: cMint, fontSize: 19, fontWeight: FontWeight.w900)),
+            const SizedBox(width: 4),
+            Text(_mode == 1 ? 'هدف' : 'تمريرة حاسمة', style: const TextStyle(color: cMuted, fontSize: 9)),
+          ])),
+        );
+      }),
+    ]);
+  }
 }
 
 // ---------- News and official sources ----------
@@ -616,7 +865,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     setState(() {
       _query = q;
-      _future = _mode == 0 ? FootballApi.instance.searchPlayers(q, nowAden().year) : FootballApi.instance.searchTeams(q);
+      _future = _mode == 0 ? FootballApi.instance.searchPlayers(q, ApiConfig.freePlanSeasons.last) : FootballApi.instance.searchTeams(q);
     });
   }
 
@@ -668,14 +917,14 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${nowAden().year}'});
+    _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.freePlanSeasons.last}'});
     _transfers = FootballApi.instance.get('transfers', {'player': '${widget.playerId}'}).then((v) => (v['response'] as List?) ?? const []);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ملف اللاعب', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16))), body: FutureBuilder<Map<String, dynamic>>(future: _future, builder: (context, snapshot) {
     if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: cMint));
-    if (snapshot.hasError) return Padding(padding: const EdgeInsets.all(16), child: ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${nowAden().year}'}))));
+    if (snapshot.hasError) return Padding(padding: const EdgeInsets.all(16), child: ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.freePlanSeasons.last}'}))));
     final rows = (snapshot.data?['response'] as List?) ?? [];
     if (rows.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: EmptyPanel(title: 'ملف اللاعب غير متاح', subtitle: 'لا توجد إحصائيات لهذا اللاعب في الموسم الحالي.'));
     final row = rows.first;
@@ -685,7 +934,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
     final games = stats['games'] ?? {};
     final goals = stats['goals'] ?? {};
     return ListView(padding: const EdgeInsets.all(16), children: [
-      Panel(child: Column(children: [NetworkBadge(url: p['photo']?.toString() ?? '', label: _mapText(p['name']), size: 90), const SizedBox(height: 10), Text(_mapText(p['name']), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)), Text('${_mapText(p['nationality'], '')} · ${_mapText(p['age'], '')} سنة', style: const TextStyle(color: cMuted, fontSize: 11)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [_metric('الفريق', _mapText(team['name'])), _metric('المركز', _mapText(games['position'])), _metric('الرقم', _mapText(games['number']))])])),
+      Panel(child: Column(children: [NetworkBadge(url: p['photo']?.toString() ?? '', label: _mapText(p['name']), size: 90), const SizedBox(height: 10), Text(_mapText(p['name']), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)), Text('${_mapText(p['nationality'], '')} · ${_mapText(p['age'], '')} سنة', style: const TextStyle(color: cMuted, fontSize: 11)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [_metric('الفريق', _mapText(team['name'])), _metric('المركز', _footballText(games['position'])), _metric('الرقم', _mapText(games['number']))])])),
       const SizedBox(height: 12),
       Row(children: [_metricPanel('المشاركات', _mapText(games['appearences'])), const SizedBox(width: 8), _metricPanel('الأهداف', _mapText(goals['total'])), const SizedBox(width: 8), _metricPanel('الصناعة', _mapText(goals['assists']))]),
       const SizedBox(height: 18),
@@ -695,7 +944,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
         if (ts.hasError) return ErrorPanel(message: ts.error.toString(), onRetry: () => setState(() => _transfers = FootballApi.instance.get('transfers', {'player': '${widget.playerId}'}).then((v) => (v['response'] as List?) ?? const [])));
         final transfers = ts.data ?? [];
         if (transfers.isEmpty) return const EmptyPanel(title: 'لا توجد انتقالات مسجلة', subtitle: 'لم يرجع المصدر سجلاً للانتقالات.');
-        return Column(children: transfers.map((t) { final x = t['transfers'] as List? ?? []; return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_mapText(t['player']?['name']), style: const TextStyle(fontWeight: FontWeight.w800)), ...x.map((v) => Text('${_mapText(v['date'])} · ${_mapText(v['type'])} · ${_mapText(v['teams']?['out']?['name'])} ← ${_mapText(v['teams']?['in']?['name'])}', style: const TextStyle(color: cMuted, fontSize: 10)))]))); }).toList());
+        return Column(children: transfers.map((t) { final x = t['transfers'] as List? ?? []; return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_mapText(t['player']?['name']), style: const TextStyle(fontWeight: FontWeight.w800)), ...x.map((v) => Text('${_mapText(v['date'])} · ${_footballText(v['type'])} · ${_mapText(v['teams']?['out']?['name'])} ← ${_mapText(v['teams']?['in']?['name'])}', style: const TextStyle(color: cMuted, fontSize: 10)))]))); }).toList());
       }),
     ]);
   }));
@@ -716,7 +965,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
   late Future<Map<String, dynamic>> _team;
   late Future<List<dynamic>> _players;
   @override
-  void initState() { super.initState(); _team = FootballApi.instance.get('teams', {'id': '${widget.teamId}'}); _players = FootballApi.instance.teamPlayers(widget.teamId, nowAden().year); }
+  void initState() { super.initState(); _team = FootballApi.instance.get('teams', {'id': '${widget.teamId}'}); _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.freePlanSeasons.last); }
   @override
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ملف النادي', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16))), body: ListView(padding: const EdgeInsets.all(16), children: [
     FutureBuilder<Map<String, dynamic>>(future: _team, builder: (context, snapshot) {
@@ -730,7 +979,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
     const SizedBox(height: 16), const SectionHeading('قائمة اللاعبين'), const SizedBox(height: 10),
     FutureBuilder<List<dynamic>>(future: _players, builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل قائمة اللاعبين');
-      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _players = FootballApi.instance.teamPlayers(widget.teamId, nowAden().year)));
+      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.freePlanSeasons.last)));
       final rows = snapshot.data ?? [];
       if (rows.isEmpty) return const EmptyPanel(title: 'قائمة اللاعبين غير متاحة', subtitle: 'قد لا تكون تغطية الموسم الحالي متاحة بعد.');
       return Column(children: rows.map((r) { final p = r['player'] ?? {}; final id = (p['id'] as num?)?.toInt() ?? 0; return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerProfileScreen(playerId: id, name: _mapText(p['name'])))), child: Row(children: [NetworkBadge(url: p['photo']?.toString() ?? '', label: _mapText(p['name']), size: 38), const SizedBox(width: 10), Expanded(child: Text(_mapText(p['name']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))), Text(_mapText(p['nationality'], ''), style: const TextStyle(color: cMuted, fontSize: 10)), const SizedBox(width: 7), const Icon(LucideIcons.chevronLeft, color: cMuted, size: 16)]))); }).toList());
