@@ -26,14 +26,21 @@ void main() {
       expect(LeagueCatalog.isAllowed(row(country: 'Yemen', name: 'Yemeni League')), isTrue);
       expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'Yemen', 'name': 'Yemeni League'}}), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'Saudi Arabia', name: 'Pro League')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Saudi-Arabia', name: 'Pro League')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'United-Arab-Emirates', name: 'Pro League')), isTrue);
+      expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'Saudi-Arabia', 'name': 'Pro League'}}), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'La Liga')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'England', name: 'Premier League')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Japan', name: 'J1 League')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'South-Korea', name: 'K League 1')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'China', name: 'Super League')), isTrue);
     });
 
     test('includes only the requested continental cups', () {
       expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'UEFA Champions League', type: 'Cup')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'AFC Champions League Elite', type: 'Cup')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'AFC Champions League Two', type: 'Cup')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'UEFA Europa League', type: 'Cup')), isTrue);
       expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'World', 'name': 'UEFA Champions League'}}), isTrue);
     });
 
@@ -47,6 +54,8 @@ void main() {
       final spain = row(country: 'Spain', name: 'La Liga');
       expect(LeagueCatalog.displayName(spain), 'الدوري الإسباني');
       expect(LeagueCatalog.displayCountry(spain), 'إسبانيا');
+      expect(LeagueCatalog.displayCountry(row(country: 'Saudi-Arabia', name: 'Pro League')), 'السعودية');
+      expect(LeagueCatalog.displayNameFor('Saudi-Arabia', 'Pro League'), 'دوري روشن السعودي');
     });
 
     test('checks separate data coverage flags', () {
