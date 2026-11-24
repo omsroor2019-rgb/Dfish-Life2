@@ -24,12 +24,20 @@ void main() {
   group('LeagueCatalog', () {
     test('keeps Gulf, Yemen and European top divisions', () {
       expect(LeagueCatalog.isAllowed(row(country: 'Yemen', name: 'Yemeni League')), isTrue);
+      expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'Yemen', 'name': 'Yemeni League'}}), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'Saudi Arabia', name: 'Pro League')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'La Liga')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'England', name: 'Premier League')), isTrue);
     });
 
-    test('excludes cups, lower divisions and unrelated countries', () {
+    test('includes only the requested continental cups', () {
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'UEFA Champions League', type: 'Cup')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'AFC Champions League Elite', type: 'Cup')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'AFC Champions League Two', type: 'Cup')), isTrue);
+      expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'World', 'name': 'UEFA Champions League'}}), isTrue);
+    });
+
+    test('excludes other cups, lower divisions and unrelated countries', () {
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'Copa del Rey', type: 'Cup')), isFalse);
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'Primera División RFEF - Group 3')), isFalse);
       expect(LeagueCatalog.isAllowed(row(country: 'Brazil', name: 'Serie A')), isFalse);
