@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import '../config/api_config.dart';
+import '../config/league_catalog.dart';
 
 const String footballTimezone = 'Asia/Aden';
 
@@ -26,7 +27,7 @@ class FootballApi {
   ]) async {
     if (!isConfigured) {
       throw const ApiException(
-        'مفتاح API-Football غير موجود. أضف المفتاح الجديد في lib/config/api_config.dart.',
+        'مفتاح API-Football غير موجود. أضف GitHub Secret باسم API_FOOTBALL_KEY ثم أعد البناء.',
       );
     }
 
@@ -55,24 +56,20 @@ class FootballApi {
     if (response.statusCode == 204) {
       return <String, dynamic>{'response': <dynamic>[], 'errors': <String, dynamic>{}, 'results': 0};
     }
-    if (response.statusCode == 429) {
-      throw const ApiException(
-        'تم تجاوز حد طلبات API-Football. انتظر حتى تتجدد الحصة أو راجع اشتراكك.',
-      );
-    }
-    if (response.statusCode == 401 || response.statusCode == 403) {
-      throw const ApiException(
-        'رفض API-Football المفتاح. تحقق من صحته واشتراكك وصلاحيات الخطة.',
-      );
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException('تعذر جلب البيانات (HTTP ${response.statusCode}).');
-    }
 
     dynamic decoded;
     try {
       decoded = jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
+      if (response.statusCode == 429) {
+        throw const ApiException('تم استهلاك حد الطلبات. انتظر تجدد الحصة اليومية.');
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw const ApiException('رفض مزوّد البيانات الطلب. تحقق من المفتاح والخطة وصلاحية الموسم.');
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException('تعذر جلب البيانات (HTTP ${response.statusCode}).');
+      }
       throw const ApiException('استجابة غير مفهومة من API-Football.');
     }
     if (decoded is! Map<String, dynamic>) {
@@ -81,10 +78,19 @@ class FootballApi {
 
     final errors = decoded['errors'];
     if (errors is Map && errors.isNotEmpty) {
-      throw ApiException(errors.values.map((v) => v.toString()).join('، '));
+      throw ApiException(_translateApiError(errors.values.map((v) => v.toString()).join('، ')));
     }
     if (errors is List && errors.isNotEmpty) {
-      throw ApiException(errors.map((v) => v.toString()).join('، '));
+      throw ApiException(_translateApiError(errors.map((v) => v.toString()).join('، ')));
+    }
+    if (response.statusCode == 429) {
+      throw const ApiException('تم استهلاك حد الطلبات. انتظر تجدد الحصة اليومية.');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const ApiException('رفض مزوّد البيانات الطلب. تحقق من المفتاح والخطة وصلاحية الموسم.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException('تعذر جلب البيانات (HTTP ${response.statusCode}).');
     }
 
     final duration = _cacheDuration(endpoint);
@@ -95,6 +101,21 @@ class FootballApi {
       );
     }
     return decoded;
+  }
+
+  String _translateApiError(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('free plans do not have access') ||
+        lower.contains('not available on the free plan')) {
+      return 'الخطة المجانية لا تتيح هذا الموسم. في 2026 جرّب المواسم ${ApiConfig.freePlanSeasons.first} إلى ${ApiConfig.freePlanSeasons.last}، أو استخدم خطة تدعم الموسم الحالي.';
+    }
+    if (lower.contains('requests') && lower.contains('limit')) {
+      return 'تم استهلاك حصة طلبات API-Football. حاول بعد تجدد الحصة اليومية.';
+    }
+    if (lower.contains('no data') || lower.contains('no results')) {
+      return 'لا توجد بيانات متاحة لهذه البطولة والموسم.';
+    }
+    return message;
   }
 
   Duration _cacheDuration(String endpoint) {
@@ -115,14 +136,20 @@ class FootballApi {
   }
 
   Future<List<dynamic>> fixtures({DateTime? date, bool live = false}) async {
+    final requestedDate = date ?? _nowInAden();
     final params = <String, String>{'timezone': footballTimezone};
     if (live) {
       params['live'] = 'all';
     } else {
-      params['date'] = DateFormat('yyyy-MM-dd').format(date ?? _nowInAden());
+      params['date'] = DateFormat('yyyy-MM-dd').format(requestedDate);
     }
     final data = await get('fixtures', params);
-    return (data['response'] as List?) ?? const [];
+    final rows = (data['response'] as List?) ?? const [];
+    // Restrict the app to the competitions shown in its curated league catalogue.
+    return rows.whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where(LeagueCatalog.isAllowedFixture)
+        .toList();
   }
 
   Future<List<dynamic>> fixtureData(String endpoint, int fixtureId) async {
@@ -130,9 +157,22 @@ class FootballApi {
     return (data['response'] as List?) ?? const [];
   }
 
-  Future<List<dynamic>> leagues() async {
-    final data = await get('leagues', {'current': 'true'});
-    return (data['response'] as List?) ?? const [];
+  /// يعيد بطولات موسم محدد ثم يقصرها على الدرجة الأولى في الخليج
+  /// واليمن وأبرز دوريات أوروبا، ويستبعد الكؤوس والدرجات الدنيا.
+  Future<List<dynamic>> leagues({required int season}) async {
+    final data = await get('leagues', {'season': '$season'});
+    final rows = (data['response'] as List?) ?? const [];
+    final filtered = rows
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where(LeagueCatalog.isAllowed)
+        .toList();
+    filtered.sort((a, b) {
+      final byCountry = LeagueCatalog.priority(a).compareTo(LeagueCatalog.priority(b));
+      if (byCountry != 0) return byCountry;
+      return LeagueCatalog.displayName(a).compareTo(LeagueCatalog.displayName(b));
+    });
+    return filtered;
   }
 
   Future<List<dynamic>> standings(int leagueId, int season) async {
