@@ -90,7 +90,10 @@ class MatchData {
         leagueId = (json['league']?['id'] as num?)?.toInt() ?? 0,
         league = LeagueCatalog.displayNameFor(json['league']?['country']?.toString() ?? '', json['league']?['name']?.toString() ?? 'بطولة'),
         leagueLogo = json['league']?['logo']?.toString() ?? '',
-        country = LeagueCatalog.displayCountryName(json['league']?['country']?.toString() ?? ''),
+        country = LeagueCatalog.displayCompetitionCountry(
+          json['league']?['country']?.toString() ?? '',
+          json['league']?['name']?.toString() ?? '',
+        ),
         home = json['teams']?['home']?['name']?.toString() ?? 'الفريق الأول',
         away = json['teams']?['away']?['name']?.toString() ?? 'الفريق الثاني',
         homeId = (json['teams']?['home']?['id'] as num?)?.toInt() ?? 0,
@@ -101,7 +104,12 @@ class MatchData {
         awayWinner = json['teams']?['away']?['winner'] == true,
         homeGoals = (json['goals']?['home'] as num?)?.toInt(),
         awayGoals = (json['goals']?['away'] as num?)?.toInt(),
-        round = json['league']?['round']?.toString() ?? '';
+        round = json['league']?['round']?.toString() ?? '',
+        venue = json['fixture']?['venue']?['name']?.toString() ?? '',
+        city = json['fixture']?['venue']?['city']?.toString() ?? '',
+        referee = json['fixture']?['referee']?.toString() ?? '',
+        homeHalfGoals = (json['score']?['halftime']?['home'] as num?)?.toInt(),
+        awayHalfGoals = (json['score']?['halftime']?['away'] as num?)?.toInt();
 
   final int id;
   final String kickoff;
@@ -123,13 +131,28 @@ class MatchData {
   final int? homeGoals;
   final int? awayGoals;
   final String round;
+  final String venue;
+  final String city;
+  final String referee;
+  final int? homeHalfGoals;
+  final int? awayHalfGoals;
+
+  String get halftimeScore => homeHalfGoals == null || awayHalfGoals == null
+      ? '—'
+      : '$homeHalfGoals - $awayHalfGoals';
 
   bool get isLive => const {'1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'SUSP', 'INT'}.contains(status);
   bool get isFinished => const {'FT', 'AET', 'PEN', 'AWD', 'WO'}.contains(status);
+  bool get isPostponed => status == 'PST';
+  bool get isCancelled => status == 'CANC';
+  bool get isUpcoming => const {'NS', 'TBD'}.contains(status);
   String get score => homeGoals == null || awayGoals == null ? '—' : '$homeGoals - $awayGoals';
   String get timeLabel {
     if (isLive) return elapsed == null ? _footballText(statusLong) : "${elapsed!}'";
     if (isFinished) return 'انتهت';
+    if (isPostponed) return 'مؤجلة';
+    if (isCancelled) return 'ملغاة';
+    if (status == 'ABD') return 'متوقفة';
     if (kickoff.length >= 16) return kickoff.substring(11, 16);
     return 'قريباً';
   }
@@ -150,6 +173,8 @@ String _footballText(dynamic value) {
     'match finished after penalties': 'انتهت بركلات الترجيح',
     'match suspended': 'معلّقة', 'match interrupted': 'متوقفة مؤقتاً',
     'match postponed': 'مؤجلة', 'match cancelled': 'ملغاة',
+    'time to be defined': 'الموعد يحدد لاحقاً', 'match abandoned': 'متوقفة',
+    'technical loss': 'نتيجة إدارية', 'walkover': 'فوز اعتباري',
     'goal': 'هدف', 'own goal': 'هدف عكسي', 'penalty': 'ركلة جزاء',
     'missed penalty': 'ركلة جزاء ضائعة', 'card': 'بطاقة',
     'yellow card': 'بطاقة صفراء', 'red card': 'بطاقة حمراء',
@@ -349,7 +374,6 @@ class _HomeScreenState extends State<HomeScreen> {
         FeatureChip(icon: LucideIcons.clapperboard, text: 'الأفلام'),
       ]),
       const SizedBox(height: 20),
-      const Text('البيانات تعتمد على تغطية مزود الخدمة، وقد لا تتوفر جميع التفاصيل لكل بطولة.', style: TextStyle(color: cMuted, fontSize: 11)),
     ]),
   );
 
@@ -390,7 +414,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
       IconButton(onPressed: () { _date = _date.add(const Duration(days: 1)); _load(); }, icon: const Icon(LucideIcons.chevronLeft, color: cText)),
     ])),
     const SizedBox(height: 12),
-    SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: ['الكل', 'مباشر', 'قادمة', 'انتهت'].map((v) => Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: ChoiceChip(label: Text(v), selected: _filter == v, onSelected: (_) => setState(() => _filter = v), selectedColor: cMint.withValues(alpha: .2), backgroundColor: cPanel, labelStyle: TextStyle(color: _filter == v ? cMint : cMuted), side: BorderSide(color: _filter == v ? cMint : cLine)))).toList())),
+    SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: ['الكل', 'مباشر', 'قادمة', 'انتهت', 'مؤجلة', 'ملغاة'].map((v) => Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: ChoiceChip(label: Text(v), selected: _filter == v, onSelected: (_) => setState(() => _filter = v), selectedColor: cMint.withValues(alpha: .2), backgroundColor: cPanel, labelStyle: TextStyle(color: _filter == v ? cMint : cMuted), side: BorderSide(color: _filter == v ? cMint : cLine)))).toList())),
     const SizedBox(height: 12),
     FutureBuilder<List<dynamic>>(
       future: _future,
@@ -399,8 +423,10 @@ class _MatchesScreenState extends State<MatchesScreen> {
         if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: _load);
         var list = (snapshot.data ?? []).map((e) => MatchData(Map<String, dynamic>.from(e as Map))).toList();
         if (_filter == 'مباشر') list = list.where((m) => m.isLive).toList();
-        if (_filter == 'قادمة') list = list.where((m) => !m.isLive && !m.isFinished).toList();
+        if (_filter == 'قادمة') list = list.where((m) => m.isUpcoming).toList();
         if (_filter == 'انتهت') list = list.where((m) => m.isFinished).toList();
+        if (_filter == 'مؤجلة') list = list.where((m) => m.isPostponed).toList();
+        if (_filter == 'ملغاة') list = list.where((m) => m.isCancelled).toList();
         if (list.isEmpty) return const EmptyPanel(title: 'لا توجد مباريات في هذا التصنيف', subtitle: 'غيّر اليوم أو مرشح المباريات.');
         final groups = <String, List<MatchData>>{};
         for (final match in list) { groups.putIfAbsent('${match.leagueId}|${match.league}|${match.country}|${match.leagueLogo}', () => []).add(match); }
@@ -454,33 +480,90 @@ class MatchDetailsScreen extends StatefulWidget {
 
 class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   int _tab = 0;
+  static const _tabs = ['الملخص', 'الأحداث', 'التشكيلة', 'الإحصائيات', 'اللاعبون', 'المواجهات'];
+
   @override
   Widget build(BuildContext context) {
     final m = widget.match;
     return Scaffold(
-      appBar: AppBar(title: const Text('مركز المباراة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () async { final prefs = await SharedPreferences.getInstance(); final key = 'fav_${m.homeId}_${m.awayId}'; await prefs.setBool(key, !(prefs.getBool(key) ?? false)); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث المفضلة'))); }, icon: const Icon(LucideIcons.star))]),
+      appBar: AppBar(
+        title: const Text('مركز المباراة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        actions: [
+          IconButton(
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              final key = 'fav_${m.homeId}_${m.awayId}';
+              await prefs.setBool(key, !(prefs.getBool(key) ?? false));
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث المفضلة')));
+            },
+            icon: const Icon(LucideIcons.star),
+          ),
+        ],
+      ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Panel(padding: const EdgeInsets.all(18), child: Column(children: [
           Text(m.league, style: const TextStyle(color: cMuted, fontSize: 12)),
           const SizedBox(height: 18),
-          Row(children: [Expanded(child: _bigTeam(m.home, m.homeLogo)), Column(children: [Text(m.score, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)), const SizedBox(height: 4), Text(m.timeLabel, style: TextStyle(color: m.isLive ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 11))]), Expanded(child: _bigTeam(m.away, m.awayLogo))]),
+          Row(children: [
+            Expanded(child: _bigTeam(m.home, m.homeLogo)),
+            Column(children: [
+              Text(m.score, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text(m.timeLabel, style: TextStyle(color: m.isLive ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 11)),
+            ]),
+            Expanded(child: _bigTeam(m.away, m.awayLogo)),
+          ]),
           const SizedBox(height: 12),
           Text(_footballText(m.statusLong), style: const TextStyle(color: cMuted, fontSize: 11)),
         ])),
-        const SizedBox(height: 16),
-        Row(children: [
-          _detailTab('الأحداث', 0), _detailTab('التشكيلة', 1), _detailTab('الإحصائيات', 2),
-        ]),
         const SizedBox(height: 12),
-        if (_tab == 0) _dataList('fixtures/events')
-        else if (_tab == 1) _dataList('fixtures/lineups')
-        else _dataList('fixtures/statistics'),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: List.generate(_tabs.length, (index) => Padding(
+            padding: const EdgeInsetsDirectional.only(end: 7),
+            child: ChoiceChip(
+              label: Text(_tabs[index]),
+              selected: _tab == index,
+              onSelected: (_) => setState(() => _tab = index),
+              selectedColor: cMint.withValues(alpha: .16),
+              backgroundColor: cPanel,
+              labelStyle: TextStyle(color: _tab == index ? cMint : cMuted, fontSize: 11),
+              side: BorderSide(color: _tab == index ? cMint : cLine),
+            ),
+          ))),
+        ),
+        const SizedBox(height: 12),
+        if (_tab == 0) _summary(m)
+        else if (_tab == 1) _dataList('fixtures/events')
+        else if (_tab == 2) _dataList('fixtures/lineups')
+        else if (_tab == 3) _dataList('fixtures/statistics')
+        else if (_tab == 4) _dataList('fixtures/players')
+        else _headToHead(m),
       ]),
     );
   }
 
-  Widget _bigTeam(String name, String logo) => Column(children: [NetworkBadge(url: logo, label: name, size: 66), const SizedBox(height: 9), Text(name, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12))]);
-  Widget _detailTab(String label, int index) => Expanded(child: InkWell(onTap: () => setState(() => _tab = index), child: Container(padding: const EdgeInsets.symmetric(vertical: 11), decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _tab == index ? cMint : cLine, width: _tab == index ? 2 : 1))), child: Text(label, textAlign: TextAlign.center, style: TextStyle(color: _tab == index ? cMint : cMuted, fontSize: 11, fontWeight: FontWeight.w700)))));
+  Widget _summary(MatchData m) => Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    _infoRow('نتيجة الشوط الأول', m.halftimeScore),
+    _infoRow('الجولة', m.round),
+    _infoRow('الملعب', m.venue),
+    _infoRow('المدينة', m.city),
+    _infoRow('الحكم', m.referee),
+  ]));
+
+  Widget _infoRow(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(color: cMuted, fontSize: 12))),
+      Flexible(child: Text(value.isEmpty ? 'غير متاح' : value, textAlign: TextAlign.end, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+    ]),
+  );
+
+  Widget _bigTeam(String name, String logo) => Column(children: [
+    NetworkBadge(url: logo, label: name, size: 66),
+    const SizedBox(height: 9),
+    Text(name, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+  ]);
 
   Widget _dataList(String endpoint) => FutureBuilder<List<dynamic>>(
     key: ValueKey('${widget.match.id}-$endpoint'),
@@ -489,33 +572,113 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل التفاصيل');
       if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() {}));
       final rows = snapshot.data ?? [];
-      if (rows.isEmpty) return const EmptyPanel(title: 'التفاصيل غير متاحة حالياً', subtitle: 'قد لا توفر البطولة هذه البيانات أو لم تبدأ المباراة بعد.');
+      if (rows.isEmpty) return const EmptyPanel(title: 'التفاصيل غير متاحة', subtitle: 'هذه البطولة أو المباراة لا توفر هذه البيانات حالياً.');
       if (endpoint.endsWith('events')) return Column(children: rows.map((e) {
         final x = Map<String, dynamic>.from(e as Map);
         final time = x['time']?['elapsed']?.toString() ?? '';
+        final extra = x['time']?['extra']?.toString();
         final detail = _footballText(x['detail'] ?? x['type'] ?? 'حدث');
         final player = x['player']?['name']?.toString() ?? '';
+        final assist = x['assist']?['name']?.toString() ?? '';
         final team = x['team']?['name']?.toString() ?? '';
-        return Panel(padding: const EdgeInsets.all(12), child: Row(children: [Container(width: 40, padding: const EdgeInsets.symmetric(vertical: 7), decoration: BoxDecoration(color: cPanel2, borderRadius: BorderRadius.circular(9)), child: Text(time.isEmpty ? '—' : "$time'", textAlign: TextAlign.center, style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 11))), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(detail, style: const TextStyle(fontWeight: FontWeight.w700)), Text('$player${team.isEmpty ? '' : ' · $team'}', style: const TextStyle(color: cMuted, fontSize: 10))]))]));
+        final clock = time.isEmpty ? '—' : (extra == null ? time : '$time+$extra');
+        return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(padding: const EdgeInsets.all(12), child: Row(children: [
+          Container(width: 48, padding: const EdgeInsets.symmetric(vertical: 7), decoration: BoxDecoration(color: cPanel2, borderRadius: BorderRadius.circular(9)), child: Text('$clock\'', textAlign: TextAlign.center, style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 11))),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(detail, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text([player, if (assist.isNotEmpty) 'صناعة: $assist', team].where((v) => v.isNotEmpty).join(' · '), style: const TextStyle(color: cMuted, fontSize: 10)),
+          ])),
+        ])));
       }).toList());
       if (endpoint.endsWith('lineups')) return Column(children: rows.map((e) {
         final x = Map<String, dynamic>.from(e as Map);
         final team = x['team']?['name']?.toString() ?? 'الفريق';
         final formation = x['formation']?.toString() ?? '';
+        final coach = x['coach']?['name']?.toString() ?? '';
         final start = (x['startXI'] as List?) ?? [];
         final subs = (x['substitutes'] as List?) ?? [];
-        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team, style: const TextStyle(fontWeight: FontWeight.w800)), Text('الخطة: ${formation.isEmpty ? 'غير متاحة' : formation}', style: const TextStyle(color: cMint, fontSize: 11)), const SizedBox(height: 8), Text('التشكيلة الأساسية (${start.length})', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), ...start.map((p) { final player = p['player'] ?? {}; return _playerRow(player); }), const Divider(color: cLine), Text('الاحتياط (${subs.length})', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)), ...subs.map((p) => _playerRow(p['player'] ?? {}))])));
+        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(team, style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text('الخطة: ${formation.isEmpty ? 'غير متاحة' : formation}${coach.isEmpty ? '' : ' · $coach'}', style: const TextStyle(color: cMint, fontSize: 11)),
+          const SizedBox(height: 8),
+          Text('التشكيلة الأساسية (${start.length})', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+          ...start.map((p) => _playerRow(p['player'] ?? {})),
+          const Divider(color: cLine),
+          Text('الاحتياط (${subs.length})', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+          ...subs.map((p) => _playerRow(p['player'] ?? {})),
+        ])));
+      }).toList());
+      if (endpoint.endsWith('players')) return Column(children: rows.map((e) {
+        final x = Map<String, dynamic>.from(e as Map);
+        final team = x['team']?['name']?.toString() ?? 'الفريق';
+        final players = (x['players'] as List?) ?? const [];
+        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(team, style: const TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          ...players.map((entry) {
+            final player = entry['player'] ?? {};
+            final statsList = (entry['statistics'] as List?) ?? const [];
+            final stats = statsList.isEmpty ? <String, dynamic>{} : Map<String, dynamic>.from(statsList.first as Map);
+            final games = stats['games'] ?? {};
+            final goals = stats['goals'] ?? {};
+            final passes = stats['passes'] ?? {};
+            final shots = stats['shots'] ?? {};
+            final minutes = games['minutes']?.toString() ?? '—';
+            final totalGoals = goals['total']?.toString() ?? '0';
+            final assists = goals['assists']?.toString() ?? '0';
+            final shotCount = shots['total']?.toString() ?? '—';
+            final passCount = passes['total']?.toString() ?? '—';
+            return Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(player['name']?.toString() ?? 'لاعب', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                Text('${minutes} د · ${totalGoals} هدف · ${assists} صناعة · ${shotCount} تسديدة · ${passCount} تمريرة', style: const TextStyle(color: cMuted, fontSize: 9)),
+              ])),
+              Text(_mapText(games['rating'], ''), style: const TextStyle(color: cMint, fontSize: 11, fontWeight: FontWeight.w800)),
+            ]));
+          }),
+        ])));
       }).toList());
       return Column(children: rows.map((e) {
         final x = Map<String, dynamic>.from(e as Map);
         final team = x['team']?['name']?.toString() ?? 'الفريق';
         final stats = (x['statistics'] as List?) ?? [];
-        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 8), ...stats.map((s) => Row(children: [Expanded(child: Text(_footballText(s['type']), style: const TextStyle(fontSize: 11, color: cMuted))), Text(_mapText(s['value']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12))])),])));
+        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(team, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          ...stats.map((s) => Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
+            Expanded(child: Text(_footballText(s['type']), style: const TextStyle(fontSize: 11, color: cMuted))),
+            Text(_mapText(s['value']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+          ]))),
+        ])));
       }).toList());
     },
   );
 
-  Widget _playerRow(dynamic player) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Text(_mapText(player['number'], ''), style: const TextStyle(color: cMint, fontSize: 11)), const SizedBox(width: 9), Expanded(child: Text(_mapText(player['name']), style: const TextStyle(fontSize: 11))), Text(_footballText(player['pos']), style: const TextStyle(color: cMuted, fontSize: 10))]));
+  Widget _headToHead(MatchData m) => FutureBuilder<List<dynamic>>(
+    key: ValueKey('h2h-${m.homeId}-${m.awayId}'),
+    future: FootballApi.instance.headToHead(m.homeId, m.awayId),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل المواجهات');
+      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() {}));
+      final rows = snapshot.data ?? const [];
+      if (rows.isEmpty) return const EmptyPanel(title: 'لا توجد مواجهات سابقة', subtitle: 'لم يعثر مزود البيانات على نتائج سابقة متاحة للفريقين.');
+      return Column(children: rows.map((row) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: MatchTile(match: MatchData(Map<String, dynamic>.from(row as Map))),
+      )).toList());
+    },
+  );
+
+  Widget _playerRow(dynamic player) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(children: [
+      Text(_mapText(player['number'], ''), style: const TextStyle(color: cMint, fontSize: 11)),
+      const SizedBox(width: 9),
+      Expanded(child: Text(_mapText(player['name']), style: const TextStyle(fontSize: 11))),
+      Text(_footballText(player['pos']), style: const TextStyle(color: cMuted, fontSize: 10)),
+    ]),
+  );
 }
 
 // ---------- البطولات والترتيب والهدافون وصناعة الأهداف ----------
@@ -552,7 +715,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
   Widget build(BuildContext context) => ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
-          const SectionHeading('البطولات', subtitle: 'الدوريات الخليجية واليمنية والدرجة الأولى في أوروبا'),
+          const SectionHeading('البطولات', subtitle: 'الدوريات الكبرى والبطولات القارية'),
           const SizedBox(height: 10),
           Panel(
             padding: const EdgeInsets.all(11),
@@ -560,7 +723,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
               const Icon(LucideIcons.info, color: cMint, size: 17),
               const SizedBox(width: 8),
               Expanded(child: Text(
-                'إذا كان حسابك على الخطة المجانية في 2026 فالمواسم المتاحة هي ${ApiConfig.freePlanSeasons.first}–${ApiConfig.freePlanSeasons.last}. بيانات الموسم الحالي تحتاج خطة تتيحه من مزوّد البيانات.',
+                'المواسم والإحصائيات المتاحة تعتمد على خطة مزوّد البيانات وتغطية كل بطولة.',
                 style: const TextStyle(color: cMuted, fontSize: 10, height: 1.6),
               )),
             ]),
