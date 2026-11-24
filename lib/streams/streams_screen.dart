@@ -9,6 +9,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../services/cloud_data_service.dart';
 import '../services/firebase_runtime.dart';
+import '../utils/arabic_time.dart';
 
 const _bg = Color(0xFF0B1018);
 const _panel = Color(0xFF121B27);
@@ -109,7 +110,7 @@ class _StreamMatchesScreenState extends State<StreamMatchesScreen> {
                             Row(children: [
                               Expanded(child: _team(match['home']?.toString() ?? 'الفريق الأول', match['homeLogo']?.toString() ?? '')),
                               Column(children: [
-                                Text(match['time']?.toString() ?? '--:--', style: const TextStyle(color: _text, fontSize: 18, fontWeight: FontWeight.w900)),
+                                Text(formatArabicTime(match['time']?.toString() ?? ''), textDirection: TextDirection.ltr, style: const TextStyle(color: _text, fontSize: 18, fontWeight: FontWeight.w900)),
                                 Text(match['date']?.toString() ?? '', style: const TextStyle(color: _muted, fontSize: 10)),
                               ]),
                               Expanded(child: _team(match['away']?.toString() ?? 'الفريق الثاني', match['awayLogo']?.toString() ?? '', alignEnd: true)),
@@ -265,27 +266,51 @@ class _WebStreamScreenState extends State<WebStreamScreen> {
   }
 
   Future<Uri> _resolveHttpsRedirects(Uri original) async {
-    // لا نرسل طلب GET استكشافي لملفات الفيديو حتى لا يبدأ تنزيل البث كاملاً.
+    // Direct media URLs must go straight to the player / WebView without probing.
     final path = original.path.toLowerCase();
     if (path.endsWith('.m3u8') || path.endsWith('.mp4') ||
         path.endsWith('.mpd') || path.endsWith('.webm')) {
       return original;
     }
+
     final client = http.Client();
     try {
-      final request = http.Request('GET', original)
-        ..followRedirects = true
-        ..maxRedirects = 10
-        ..headers['User-Agent'] = _mobileBrowserAgent;
-      final response = await client.send(request).timeout(const Duration(seconds: 12));
-      final destination = response.request?.url ?? original;
-      // نحتاج رؤوس الاستجابة ووجهة التحويل فقط، لا محتوى الصفحة كاملاً.
-      await response.stream.listen((_) {}).cancel();
-      if (destination.scheme == 'https' && destination.host.isNotEmpty) return destination;
-    } on TimeoutException {
-      // Keep the original link; WebView can still resolve it itself.
-    } catch (_) {
-      // Some short-link services block non-browser probes.
+      final headers = <String, String>{'User-Agent': _mobileBrowserAgent};
+      Uri? destination;
+
+      // Prefer HEAD: it follows ordinary short-link redirects without fetching a page body.
+      try {
+        final head = await client
+            .send(http.Request('HEAD', original)
+              ..followRedirects = true
+              ..maxRedirects = 10
+              ..headers.addAll(headers))
+            .timeout(const Duration(seconds: 8));
+        destination = head.request?.url;
+        await head.stream.listen((_) {}).cancel();
+      } catch (_) {
+        // Some short-link providers reject HEAD; try one-byte ranged GET below.
+      }
+
+      if (destination == null || destination == original) {
+        try {
+          final getHeaders = <String, String>{...headers, 'Range': 'bytes=0-0'};
+          final response = await client
+              .send(http.Request('GET', original)
+                ..followRedirects = true
+                ..maxRedirects = 10
+                ..headers.addAll(getHeaders))
+              .timeout(const Duration(seconds: 10));
+          destination = response.request?.url;
+          await response.stream.listen((_) {}).cancel();
+        } catch (_) {
+          // Some services require a real browser session; WebView will load the original URL.
+        }
+      }
+
+      if (destination != null && destination.scheme == 'https' && destination.host.isNotEmpty) {
+        return destination;
+      }
     } finally {
       client.close();
     }
