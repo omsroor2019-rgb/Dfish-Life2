@@ -121,7 +121,13 @@ class FootballApi {
   Duration _cacheDuration(String endpoint) {
     switch (endpoint) {
       case 'fixtures':
-        return const Duration(minutes: 3);
+        return const Duration(minutes: 2);
+      case 'fixtures/events':
+      case 'fixtures/lineups':
+      case 'fixtures/statistics':
+      case 'fixtures/players':
+      case 'fixtures/headtohead':
+        return const Duration(minutes: 1);
       case 'leagues':
         return const Duration(hours: 6);
       case 'standings':
@@ -143,13 +149,28 @@ class FootballApi {
     } else {
       params['date'] = DateFormat('yyyy-MM-dd').format(requestedDate);
     }
-    final data = await get('fixtures', params);
-    final rows = (data['response'] as List?) ?? const [];
-    // Restrict the app to the competitions shown in its curated league catalogue.
-    return rows.whereType<Map>()
-        .map((row) => Map<String, dynamic>.from(row))
-        .where(LeagueCatalog.isAllowedFixture)
-        .toList();
+    // اجمع صفحات اليوم أولاً ثم صفِّ المسابقات حتى لا تختفي مباريات
+    // البطولات القارية التي تقع في الصفحات التالية من استجابة المزود.
+    final rows = <Map<String, dynamic>>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final pageParams = <String, String>{...params, 'page': '$page'};
+      final data = await get('fixtures', pageParams);
+      final responseRows = (data['response'] as List?) ?? const [];
+      rows.addAll(responseRows.whereType<Map>().map((row) => Map<String, dynamic>.from(row)));
+      final paging = data['paging'];
+      if (paging is Map) totalPages = (paging['total'] as num?)?.toInt() ?? 1;
+      page++;
+    } while (page <= totalPages && page <= 30);
+
+    final filtered = rows.where(LeagueCatalog.isAllowedFixture).toList();
+    filtered.sort((a, b) {
+      final aDate = a['fixture']?['date']?.toString() ?? '';
+      final bDate = b['fixture']?['date']?.toString() ?? '';
+      return aDate.compareTo(bDate);
+    });
+    return filtered;
   }
 
   Future<List<dynamic>> fixtureData(String endpoint, int fixtureId) async {
@@ -157,8 +178,18 @@ class FootballApi {
     return (data['response'] as List?) ?? const [];
   }
 
-  /// يعيد بطولات موسم محدد ثم يقصرها على الدرجة الأولى في الخليج
-  /// واليمن وأبرز دوريات أوروبا، ويستبعد الكؤوس والدرجات الدنيا.
+  Future<List<dynamic>> headToHead(int homeTeamId, int awayTeamId) async {
+    if (homeTeamId <= 0 || awayTeamId <= 0) return const [];
+    final data = await get('fixtures/headtohead', {
+      'h2h': '$homeTeamId-$awayTeamId',
+      'last': '8',
+      'timezone': footballTimezone,
+    });
+    return (data['response'] as List?) ?? const [];
+  }
+
+  /// يعيد الدرجة الأولى في الخليج واليمن وأبرز دوريات أوروبا،
+  /// مع دوري أبطال أوروبا وبطولات أبطال آسيا المحددة فقط.
   Future<List<dynamic>> leagues({required int season}) async {
     final data = await get('leagues', {'season': '$season'});
     final rows = (data['response'] as List?) ?? const [];
