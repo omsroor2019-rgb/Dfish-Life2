@@ -15,24 +15,25 @@
 
 ## الإعداد قبل البناء
 
-1. أضف مفتاح API-Football جديداً في `lib/config/api_config.dart`.
-2. أكمل قيم تطبيق Firebase Android في `lib/firebase_options.dart`.
+1. أضف GitHub Repository Secret باسم `API_FOOTBALL_KEY` وضع فيه المفتاح الجديد.
+2. تأكد أن قيم تطبيق Firebase Android في `lib/firebase_options.dart` تخص مشروع `dfish-live`.
 3. أنشئ حساب المدير وقواعد Firestore كما هو موضح في `docs/FIREBASE_SETUP_AR.md`.
-4. شغّل `flutter pub get` ثم `flutter run`.
+4. شغّل محلياً `flutter run --dart-define=API_FOOTBALL_KEY=YOUR_NEW_KEY` بعد استبدال القيمة محلياً.
 
 ## بناء APK
 
 ```bash
 flutter pub get
-dart run tool/verify_config.dart
-flutter build apk --release
+flutter test
+flutter analyze
+flutter build apk --release --dart-define=API_FOOTBALL_KEY=YOUR_NEW_KEY
 ```
 
-أو ارفع التغييرات إلى الفرع `main` في GitHub ثم شغّل Workflow باسم `Build DFISH LIVE APK`. لن يبدأ GitHub Actions البناء إذا كانت إعدادات Firebase أو API-Football ما زالت placeholders.
+في GitHub ارفع المشروع إلى الفرع `main` ثم شغّل Workflow باسم `Build DFISH LIVE APK`. يجب إضافة Repository Secret باسم `API_FOOTBALL_KEY` قبل التشغيل؛ سيتحقق Workflow من وجوده ويشغّل الاختبارات والتحليل قبل بناء APK.
 
 ## الخدمات المستخدمة
 
-- API-Football: مصدر بيانات المباريات والبطولات والإحصائيات. المفتاح مضمّن في التطبيق وفق طلب مالك المشروع ويمكن استخراجه من APK؛ استخدم مفتاحاً مخصصاً وراقب الحصة.
+- API-Football: مصدر بيانات المباريات والبطولات والإحصائيات. المفتاح يمرّر من GitHub Secret وقت البناء، لكنه يُضمّن في التطبيق الناتج ويمكن استخراجه من APK؛ استخدم مفتاحاً مخصصاً وراقب الحصة.
 - Firebase Authentication: تسجيل دخول المدير.
 - Cloud Firestore: مزامنة المباريات وروابط البث بين جميع الأجهزة.
 
@@ -41,3 +42,15 @@ flutter build apk --release
 ## الحقوق
 
 تطوير عبد العزيز عوض بن ثابت. جميع الحقوق محفوظة © DFISH LIVE.
+
+
+## نطاق البطولات والمواسم
+
+تعرض شاشة البطولات الدرجة الأولى فقط في دول الخليج واليمن وأبرز دوريات أوروبا، وتعرض أسماء البطولات والدول بالعربية. يتم طلب بيانات كل موسم على حدة، وتتوفر في الخطة المجانية لعام 2026 المواسم 2022 و2023 و2024 فقط بحسب وثائق API-Football؛ قد تختلف الإتاحة حسب الخطة والتغطية لكل بطولة. لا يعني وجود بطولة في القائمة أن الترتيب أو الهدافين أو الصناعة متاحة لكل موسم؛ يراجع التطبيق حقول التغطية ويعرض رسالة عند غيابها.
+
+## مفتاح API في GitHub
+
+أضف Repository Secret باسم `API_FOOTBALL_KEY`. لا تضع المفتاح في ملفات Dart أو في مستودع عام. يمرر Workflow المفتاح وقت بناء APK؛ تذكر أنه سيظل قابلاً للاستخراج من APK لأن الاتصال مباشر من التطبيق.
+
+
+**مهم للموسم الحالي:** على خطة API-Football المجانية لعام 2026 لا تتوفر بيانات موسم 2026؛ المواسم المتاحة 2022–2024 بحسب المزود. لذلك لا تظهر مباريات اليوم والبث الحي من API إلا بعد الاشتراك بخطة تشمل الموسم الحالي. هذا القيد من مزوّد البيانات وليس من Flutter أو Firebase.
