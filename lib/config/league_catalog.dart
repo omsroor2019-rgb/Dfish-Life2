@@ -3,6 +3,40 @@
 class LeagueCatalog {
   LeagueCatalog._();
 
+  static String _normalize(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[-_]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  static List<String> _allowedNamesForCountry(String country) {
+    final key = _normalize(country);
+    for (final entry in _allowed.entries) {
+      if (_normalize(entry.key) == key) return entry.value.map(_normalize).toList();
+    }
+    return const [];
+  }
+
+  static String _arabicCountry(String country) {
+    final key = _normalize(country);
+    for (final entry in _arabicCountries.entries) {
+      if (_normalize(entry.key) == key) return entry.value;
+    }
+    return country;
+  }
+
+  static String _arabicLeague(String country, String league) {
+    final countryKey = _normalize(country);
+    final leagueKey = _normalize(league);
+    for (final entry in _arabicNames.entries) {
+      final parts = entry.key.split('|');
+      if (parts.length == 2 && _normalize(parts[0]) == countryKey && _normalize(parts[1]) == leagueKey) {
+        return entry.value;
+      }
+    }
+    return league;
+  }
+
   static const Map<String, List<String>> _allowed = {
     'Saudi Arabia': ['pro league', 'saudi pro league'],
     'United Arab Emirates': ['pro league', 'uae pro league'],
@@ -34,6 +68,16 @@ class LeagueCatalog {
     'Poland': ['ekstraklasa'],
     'Croatia': ['hnl'],
     'Serbia': ['super liga'],
+    'Japan': ['j1 league'],
+    'South Korea': ['k league 1'],
+    'China': ['super league'],
+    'Iran': ['persian gulf pro league'],
+    'Iraq': ['iraqi league'],
+    'India': ['indian super league'],
+    'Indonesia': ['liga 1'],
+    'Thailand': ['thai league 1'],
+    'Australia': ['a-league'],
+    'Uzbekistan': ['super league'],
   };
 
   /// البطولات القارية المطلوبة فقط؛ لا نفتح كل الكؤوس المحلية.
@@ -42,6 +86,10 @@ class LeagueCatalog {
     'afc champions league elite',
     'afc champions league two',
     'afc champions league',
+    'uefa europa league',
+    'uefa europa conference league',
+    'uefa conference league',
+    'afc challenge league',
   };
 
   static const Map<String, String> _internationalArabicNames = {
@@ -49,6 +97,10 @@ class LeagueCatalog {
     'afc champions league elite': 'دوري أبطال آسيا للنخبة',
     'afc champions league two': 'دوري أبطال آسيا 2',
     'afc champions league': 'دوري أبطال آسيا',
+    'uefa europa league': 'الدوري الأوروبي',
+    'uefa europa conference league': 'دوري المؤتمر الأوروبي',
+    'uefa conference league': 'دوري المؤتمر الأوروبي',
+    'afc challenge league': 'دوري التحدي الآسيوي',
   };
 
   static const Map<String, String> _arabicNames = {
@@ -98,6 +150,16 @@ class LeagueCatalog {
     'Poland|ekstraklasa': 'الدوري البولندي الممتاز',
     'Croatia|hnl': 'الدوري الكرواتي الممتاز',
     'Serbia|super liga': 'الدوري الصربي الممتاز',
+    'Japan|j1 league': 'الدوري الياباني الممتاز',
+    'South Korea|k league 1': 'الدوري الكوري الجنوبي الممتاز',
+    'China|super league': 'الدوري الصيني الممتاز',
+    'Iran|persian gulf pro league': 'الدوري الإيراني الممتاز',
+    'Iraq|iraqi league': 'الدوري العراقي الممتاز',
+    'India|indian super league': 'الدوري الهندي الممتاز',
+    'Indonesia|liga 1': 'الدوري الإندونيسي الممتاز',
+    'Thailand|thai league 1': 'الدوري التايلاندي الممتاز',
+    'Australia|a-league': 'الدوري الأسترالي',
+    'Uzbekistan|super league': 'الدوري الأوزبكي الممتاز',
   };
 
   static const Map<String, String> _arabicCountries = {
@@ -131,6 +193,16 @@ class LeagueCatalog {
     'Poland': 'بولندا',
     'Croatia': 'كرواتيا',
     'Serbia': 'صربيا',
+    'Japan': 'اليابان',
+    'South Korea': 'كوريا الجنوبية',
+    'China': 'الصين',
+    'Iran': 'إيران',
+    'Iraq': 'العراق',
+    'India': 'الهند',
+    'Indonesia': 'إندونيسيا',
+    'Thailand': 'تايلاند',
+    'Australia': 'أستراليا',
+    'Uzbekistan': 'أوزبكستان',
     'World': 'دولي',
     'Asia': 'آسيا',
   };
@@ -150,36 +222,37 @@ class LeagueCatalog {
   static bool isAllowed(Map<String, dynamic> item) {
     final league = item['league'];
     if (league is! Map) return false;
-    final name = (league['name'] ?? '').toString().trim().toLowerCase();
-    final type = (league['type'] ?? '').toString().toLowerCase();
-    if (_internationalCups.contains(name)) {
+    final name = _normalize((league['name'] ?? '').toString());
+    final type = _normalize((league['type'] ?? '').toString());
+    if (_internationalCups.map(_normalize).contains(name)) {
       return type.isEmpty || type == 'cup' || type == 'league';
     }
     if (type != 'league') return false;
-    final allowedNames = _allowed[countryName(item)];
-    return allowedNames != null && allowedNames.contains(name);
+    return _allowedNamesForCountry(countryName(item)).contains(name);
   }
 
   static String displayName(Map<String, dynamic> item) =>
       displayNameFor(countryName(item), originalLeagueName(item));
 
   static String displayNameFor(String country, String leagueName) {
-    final name = leagueName.trim().toLowerCase();
-    return _internationalArabicNames[name] ?? _arabicNames['$country|$name'] ?? leagueName;
+    final name = _normalize(leagueName);
+    for (final entry in _internationalArabicNames.entries) {
+      if (_normalize(entry.key) == name) return entry.value;
+    }
+    return _arabicLeague(country, leagueName);
   }
 
   static String displayCountry(Map<String, dynamic> item) =>
       displayCompetitionCountry(countryName(item), originalLeagueName(item));
 
   static String displayCompetitionCountry(String country, String leagueName) {
-    final name = leagueName.trim().toLowerCase();
-    if (name == 'uefa champions league') return 'أوروبا';
-    if (_internationalCups.contains(name)) return 'آسيا';
+    final name = _normalize(leagueName);
+    if (name.startsWith('uefa ')) return 'أوروبا';
+    if (_internationalCups.map(_normalize).contains(name)) return 'آسيا';
     return displayCountryName(country);
   }
 
-  static String displayCountryName(String country) =>
-      _arabicCountries[country] ?? country;
+  static String displayCountryName(String country) => _arabicCountry(country);
 
   /// Fixture responses use league.country as a string rather than an object.
   /// تقبل المسابقات القارية المحددة حتى لو كان نوعها Cup.
@@ -187,9 +260,9 @@ class LeagueCatalog {
     final league = fixture['league'];
     if (league is! Map) return false;
     final country = (league['country'] ?? '').toString();
-    final name = (league['name'] ?? '').toString().trim().toLowerCase();
-    if (_internationalCups.contains(name)) return true;
-    return (_allowed[country] ?? const <String>[]).contains(name);
+    final name = _normalize((league['name'] ?? '').toString());
+    if (_internationalCups.map(_normalize).contains(name)) return true;
+    return _allowedNamesForCountry(country).contains(name);
   }
 
   static int priority(Map<String, dynamic> item) {
@@ -202,8 +275,11 @@ class LeagueCatalog {
       'Netherlands', 'Portugal', 'Belgium', 'Türkiye', 'Turkey', 'Scotland',
       'Greece', 'Austria', 'Switzerland', 'Denmark', 'Norway', 'Sweden',
       'Russia', 'Ukraine', 'Czech Republic', 'Poland', 'Croatia', 'Serbia',
+      'Japan', 'South Korea', 'China', 'Iran', 'Iraq', 'India', 'Indonesia',
+      'Thailand', 'Australia', 'Uzbekistan',
     ];
-    final index = countryOrder.indexOf(countryName(item));
+    final current = _normalize(countryName(item));
+    final index = countryOrder.indexWhere((country) => _normalize(country) == current);
     return index < 0 ? 999 : index + 2;
   }
 
