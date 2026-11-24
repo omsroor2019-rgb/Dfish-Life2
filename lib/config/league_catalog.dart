@@ -36,6 +36,21 @@ class LeagueCatalog {
     'Serbia': ['super liga'],
   };
 
+  /// البطولات القارية المطلوبة فقط؛ لا نفتح كل الكؤوس المحلية.
+  static const Set<String> _internationalCups = {
+    'uefa champions league',
+    'afc champions league elite',
+    'afc champions league two',
+    'afc champions league',
+  };
+
+  static const Map<String, String> _internationalArabicNames = {
+    'uefa champions league': 'دوري أبطال أوروبا',
+    'afc champions league elite': 'دوري أبطال آسيا للنخبة',
+    'afc champions league two': 'دوري أبطال آسيا 2',
+    'afc champions league': 'دوري أبطال آسيا',
+  };
+
   static const Map<String, String> _arabicNames = {
     'Saudi Arabia|pro league': 'دوري روشن السعودي',
     'Saudi Arabia|saudi pro league': 'دوري روشن السعودي',
@@ -116,6 +131,8 @@ class LeagueCatalog {
     'Poland': 'بولندا',
     'Croatia': 'كرواتيا',
     'Serbia': 'صربيا',
+    'World': 'دولي',
+    'Asia': 'آسيا',
   };
 
   static String countryName(Map<String, dynamic> item) {
@@ -133,13 +150,14 @@ class LeagueCatalog {
   static bool isAllowed(Map<String, dynamic> item) {
     final league = item['league'];
     if (league is! Map) return false;
+    final name = (league['name'] ?? '').toString().trim().toLowerCase();
     final type = (league['type'] ?? '').toString().toLowerCase();
-    if (type != 'league') return false; // يستبعد الكؤوس والبطولات القصيرة.
-    final country = countryName(item);
-    final allowedNames = _allowed[country];
-    if (allowedNames == null) return false;
-    final name = originalLeagueName(item).trim().toLowerCase();
-    return allowedNames.contains(name);
+    if (_internationalCups.contains(name)) {
+      return type.isEmpty || type == 'cup' || type == 'league';
+    }
+    if (type != 'league') return false;
+    final allowedNames = _allowed[countryName(item)];
+    return allowedNames != null && allowedNames.contains(name);
   }
 
   static String displayName(Map<String, dynamic> item) =>
@@ -147,26 +165,37 @@ class LeagueCatalog {
 
   static String displayNameFor(String country, String leagueName) {
     final name = leagueName.trim().toLowerCase();
-    return _arabicNames['$country|$name'] ?? leagueName;
+    return _internationalArabicNames[name] ?? _arabicNames['$country|$name'] ?? leagueName;
   }
 
   static String displayCountry(Map<String, dynamic> item) =>
-      displayCountryName(countryName(item));
+      displayCompetitionCountry(countryName(item), originalLeagueName(item));
+
+  static String displayCompetitionCountry(String country, String leagueName) {
+    final name = leagueName.trim().toLowerCase();
+    if (name == 'uefa champions league') return 'أوروبا';
+    if (_internationalCups.contains(name)) return 'آسيا';
+    return displayCountryName(country);
+  }
 
   static String displayCountryName(String country) =>
       _arabicCountries[country] ?? country;
 
   /// Fixture responses use league.country as a string rather than an object.
-  /// Keep only the same curated first-division list on the matches screens.
+  /// تقبل المسابقات القارية المحددة حتى لو كان نوعها Cup.
   static bool isAllowedFixture(Map<String, dynamic> fixture) {
     final league = fixture['league'];
     if (league is! Map) return false;
     final country = (league['country'] ?? '').toString();
     final name = (league['name'] ?? '').toString().trim().toLowerCase();
+    if (_internationalCups.contains(name)) return true;
     return (_allowed[country] ?? const <String>[]).contains(name);
   }
 
   static int priority(Map<String, dynamic> item) {
+    final name = originalLeagueName(item).trim().toLowerCase();
+    if (name == 'uefa champions league') return 0;
+    if (_internationalCups.contains(name)) return 1;
     const countryOrder = [
       'Saudi Arabia', 'Yemen', 'United Arab Emirates', 'Qatar', 'Bahrain',
       'Kuwait', 'Oman', 'England', 'Spain', 'Italy', 'Germany', 'France',
@@ -175,7 +204,7 @@ class LeagueCatalog {
       'Russia', 'Ukraine', 'Czech Republic', 'Poland', 'Croatia', 'Serbia',
     ];
     final index = countryOrder.indexOf(countryName(item));
-    return index < 0 ? 999 : index;
+    return index < 0 ? 999 : index + 2;
   }
 
   static Map<String, dynamic>? seasonInfo(Map<String, dynamic> item, int year) {
