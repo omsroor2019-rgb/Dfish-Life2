@@ -5,7 +5,7 @@ class ApiConfig {
   ApiConfig._();
 
   static const String footballBaseUrl = 'https://v3.football.api-sports.io';
-  static const String footballApiKey = String.fromEnvironment('5df46e7eca263cc5f30a9395853fdbcc');
+  static const String footballApiKey = String.fromEnvironment('API_FOOTBALL_KEY');
 
   /// الخطة المجانية في 2026 تتيح المواسم من السنة الحالية - 4 إلى - 2.
   /// مثال 2026: 2022، 2023، 2024.
