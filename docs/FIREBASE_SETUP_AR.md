@@ -38,16 +38,16 @@
 5. أنشئ مستنداً يكون معرّفه UID الذي نسخته من Authentication.
 6. أضف الحقول:
    - `enabled` من النوع Boolean وقيمته `true`
-   - `role` من النوع String وقيمته `admin`
 
 لا تسمح بإنشاء مستندات `admin_users` من التطبيق. أضف المديرين يدوياً من Firebase Console فقط. قواعد Firestore تمنع المستخدمين العاديين من إنشاء أو تعديل أو حذف المباريات.
 
 ## 4) إضافة مفتاح API-Football
 
 1. افتح لوحة حسابك في https://dashboard.api-football.com/ وأنشئ مفتاحاً جديداً.
-2. افتح `lib/config/api_config.dart`.
-3. استبدل `PASTE_NEW_API_FOOTBALL_KEY_HERE` بالمفتاح الجديد.
-4. لا تستخدم المفتاح الذي سبق إرساله في محادثة أو نشره في مكان عام؛ ألغِه وأنشئ مفتاحاً جديداً.
+2. افتح مستودع GitHub ثم Settings > Secrets and variables > Actions.
+3. اختر New repository secret وأنشئ سراً بالاسم `API_FOOTBALL_KEY`.
+4. ألصق المفتاح الجديد في قيمة السر واحفظه؛ لا تضعه في ملفات Dart أو في المستودع.
+5. لا تستخدم المفتاح الذي سبق إرساله في محادثة أو نشره في مكان عام؛ ألغِه وأنشئ مفتاحاً جديداً.
 
 مهم: هذا التطبيق يتصل مباشرةً بـ API-Football كما طلب مالك المشروع. لذلك يصبح مفتاح API قابلاً للاستخراج من APK، وتُستهلك حصة الحساب نفسها من جميع المستخدمين. راقب الحصة وحدود الاشتراك في لوحة API-Football. لا يمكن ضمان عمل الخدمة بنسبة 100% عند انقطاع الإنترنت أو تجاوز الحصة أو رفض المزود للطلب.
 
@@ -58,18 +58,20 @@
 ```bash
 flutter pub get
 flutter analyze
-flutter run
+flutter run --dart-define=API_FOOTBALL_KEY=YOUR_NEW_KEY
 ```
+استبدل `YOUR_NEW_KEY` محلياً بمفتاحك الجديد، ولا تضعه في ملف أو مستودع عام.
 
 من لوحة الإدارة يوجد زر `فحص الاتصال` الذي يرسل طلباً إلى مسار `status` في API-Football. نجاح الاختبار يعني أن المفتاح مقبول وقت الاختبار، ولا يضمن توفر كل بطولة أو إحصائية في خطة الاشتراك.
 
 ## 6) بناء APK من GitHub Actions
 
 1. ارفع محتويات المشروع إلى مستودع GitHub.
-2. تأكد من تحديث `lib/firebase_options.dart` و`lib/config/api_config.dart` قبل الرفع.
-3. افتح Actions.
-4. اختر `Build DFISH LIVE APK` ثم `Run workflow`.
-5. بعد نجاح البناء افتح نتيجة التشغيل وحمّل Artifact باسم `DFISH-LIVE-Android-APK`.
+2. تأكد من أن إعدادات `lib/firebase_options.dart` تخص مشروع `dfish-live`.
+3. أضف GitHub Secret باسم `API_FOOTBALL_KEY` قبل تشغيل البناء.
+4. افتح Actions.
+5. اختر `Build DFISH LIVE APK` ثم `Run workflow`.
+6. بعد نجاح البناء افتح نتيجة التشغيل وحمّل Artifact باسم `DFISH-LIVE-Android-APK`.
 
 لا توجد إعدادات خادم إضافية مطلوبة في GitHub لهذا الاتصال المباشر.
 
