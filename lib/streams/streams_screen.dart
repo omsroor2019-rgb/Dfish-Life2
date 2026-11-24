@@ -252,7 +252,6 @@ class _WebStreamScreenState extends State<WebStreamScreen> {
   @override
   void initState() {
     super.initState();
-    final originalHost = widget.uri.host.toLowerCase();
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -265,9 +264,9 @@ class _WebStreamScreenState extends State<WebStreamScreen> {
           if (target == null) return NavigationDecision.prevent;
           if (target.scheme == 'about' && target.path == 'blank') return NavigationDecision.navigate;
           if (target.scheme != 'https') return NavigationDecision.prevent;
-          // Keep top-level browsing on the source site. HTTPS iframe resources
-          // remain available so legitimate embedded players can load normally.
-          if (request.isMainFrame && target.host.toLowerCase() != originalHost) return NavigationDecision.prevent;
+          // Short links (for example buff.ly) commonly redirect to Blogger or
+          // another HTTPS host. Allow HTTPS redirects and embedded player pages;
+          // continue blocking insecure HTTP and custom schemes.
           return NavigationDecision.navigate;
         },
       ))
@@ -279,7 +278,7 @@ class _WebStreamScreenState extends State<WebStreamScreen> {
     backgroundColor: Colors.black,
     appBar: AppBar(
       backgroundColor: _bg,
-      title: Text('مشغل المصدر · ${widget.uri.host}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
+      title: Text('مشغل البث · ${widget.uri.host}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
       actions: [IconButton(tooltip: 'إعادة تحميل', onPressed: () { setState(() { _progress = 0; _error = null; }); _web.reload(); }, icon: const Icon(LucideIcons.refreshCw, color: _mint))],
     ),
     body: Column(children: [
