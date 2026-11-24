@@ -1,0 +1,33 @@
+name: dfish_live
+description: DFISH LIVE - Arabic football and entertainment companion.
+publish_to: 'none'
+version: 1.0.1+2
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.11.1
+  http: ^1.6.0
+  intl: ^0.20.2
+  google_fonts: ^9.0.0
+  url_launcher: ^6.3.2
+  shared_preferences: ^2.5.4
+  lucide_icons_flutter: ^4.0.3
+  firebase_core: ^5.2.0
+  firebase_auth: ^7.1.0
+  cloud_firestore: ^7.2.0
+  video_player: ^2.14.1
+  webview_flutter: ^4.14.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/icon/dfish_live_icon.png"
+  min_sdk_android: 21
+flutter:
+  uses-material-design: true
