@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
@@ -410,7 +411,7 @@ class _Logo extends StatelessWidget {
   final String url;
   final String label;
   @override
-  Widget build(BuildContext context) => Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(color: _panel2, borderRadius: BorderRadius.circular(11)), child: url.isEmpty ? Text(label.isEmpty ? '?' : label[0], style: const TextStyle(color: _mint, fontWeight: FontWeight.w900)) : ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(url, width: 34, height: 34, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Text(label.isEmpty ? '?' : label[0], style: const TextStyle(color: _mint, fontWeight: FontWeight.w900)))));
+  Widget build(BuildContext context) => Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(color: _panel2, borderRadius: BorderRadius.circular(11)), child: url.isEmpty ? Text(label.isEmpty ? '?' : label[0], style: const TextStyle(color: _mint, fontWeight: FontWeight.w900)) : ClipRRect(borderRadius: BorderRadius.circular(10), child: CachedNetworkImage(imageUrl: url, width: 34, height: 34, fit: BoxFit.contain, fadeInDuration: const Duration(milliseconds: 120), placeholder: (_, __) => const SizedBox(width: 34, height: 34), errorWidget: (_, __, ___) => Text(label.isEmpty ? '?' : label[0], style: const TextStyle(color: _mint, fontWeight: FontWeight.w900)))));
 }
 
 class _StreamState extends StatelessWidget {
