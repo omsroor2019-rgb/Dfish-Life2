@@ -285,7 +285,13 @@ class _AppShellState extends State<AppShell> {
   final GlobalKey<_HomeScreenState> _homeKey = GlobalKey<_HomeScreenState>();
   final GlobalKey<_MatchesScreenState> _matchesKey = GlobalKey<_MatchesScreenState>();
   late final List<Widget> _pages = [
-    HomeScreen(key: _homeKey),
+    HomeScreen(
+      key: _homeKey,
+      onOpenMatches: () {
+        setState(() => _index = 1);
+        _matchesKey.currentState?.refreshLiveIfToday();
+      },
+    ),
     MatchesScreen(key: _matchesKey),
     const StandingsScreen(),
     const StreamMatchesScreen(),
@@ -347,7 +353,8 @@ class _AppShellState extends State<AppShell> {
 
 // ---------- Home ----------
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onOpenMatches});
+  final VoidCallback? onOpenMatches;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -393,8 +400,26 @@ class _HomeScreenState extends State<HomeScreen> {
           final matches = (snapshot.data ?? []).map((e) => MatchData(Map<String, dynamic>.from(e as Map))).toList();
           final stale = FootballApi.instance.lastResponseWasStale;
           if (matches.isEmpty) return Column(children: [if (stale) const CacheNotice(), const EmptyPanel(title: 'لا توجد مباريات مدرجة اليوم', subtitle: 'قد لا تكون هناك مباريات أو قد لا يغطي المصدر هذه البطولة.')]);
-          final selected = matches.where((m) => m.isLive).toList()..addAll(matches.where((m) => !m.isLive).take(5));
-          return Column(children: [if (stale) const CacheNotice(), ...selected.take(6).map((m) => Padding(padding: const EdgeInsets.only(bottom: 10), child: MatchTile(match: m)))]);
+          // يعيد FootballApi ترتيب القائمة: البطولات الأهم أولاً، ثم
+          // المباريات المباشرة داخل كل أولوية؛ نعرض 12 بدلاً من ست فقط.
+          final selected = matches.take(12).toList();
+          return Column(children: [
+            if (stale) const CacheNotice(),
+            ...selected.map((m) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: MatchTile(match: m),
+            )),
+            if (matches.length > selected.length || matches.isNotEmpty)
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: widget.onOpenMatches,
+                  icon: const Icon(LucideIcons.arrowLeft, size: 16),
+                  label: const Text('عرض جميع المباريات'),
+                  style: TextButton.styleFrom(foregroundColor: cMint),
+                ),
+              ),
+          ]);
         },
       ),
       const SizedBox(height: 12),
@@ -748,7 +773,7 @@ class StandingsScreen extends StatefulWidget {
 class _StandingsScreenState extends State<StandingsScreen> {
   late Future<List<dynamic>> _leagues;
   int _season = ApiConfig.currentSeason;
-  List<int> _seasonOptions = ApiConfig.requestedSeasons;
+  List<int> _seasonOptions = const <int>[];
   int _mode = 0;
   int? _selectedLeagueId;
 
@@ -764,33 +789,51 @@ class _StandingsScreenState extends State<StandingsScreen> {
   }
 
   Future<List<dynamic>> _loadAvailableSeasonsAndLeagues() async {
-    try {
-      final available = await FootballApi.instance.availableSeasons();
-      final current = ApiConfig.currentSeason;
-      final relevant = available
-          .where((year) => year == current || year == current + 1)
-          .toSet()
-          .toList()
-        ..sort((a, b) => b.compareTo(a));
+    final available = await FootballApi.instance.availableSeasons();
+    final current = ApiConfig.currentSeason;
 
-      // Keep 2026 and 2027 available as requested, even if the provider
-      // has not published one of them globally yet. The selected league
-      // endpoint will report plan/coverage restrictions precisely.
-      _seasonOptions = relevant.isNotEmpty
-          ? relevant
-          : ApiConfig.requestedSeasons;
-      if (!_seasonOptions.contains(_season)) {
-        _season = _seasonOptions.contains(current)
-            ? current
-            : _seasonOptions.first;
+    // لا نساوي بين السنوات الموجودة عالمياً وبين السنوات المسموح بها
+    // في حساب المستخدم؛ نجرب أحدث السنوات ونحتفظ فقط بما يرجع دوريات فعلية.
+    final availableSet = available.toSet();
+    final preferredYears = ApiConfig.requestedSeasons
+        .where(availableSet.contains)
+        .toList();
+    final candidates = preferredYears.isNotEmpty
+        ? preferredYears
+        : (available.toList()..sort((a, b) => b.compareTo(a)))
+            .take(6)
+            .toList();
+
+    final supported = <int, List<dynamic>>{};
+    ApiException? lastSeasonError;
+    for (final year in candidates) {
+      try {
+        final rows = await FootballApi.instance.leagues(season: year);
+        if (rows.isNotEmpty) supported[year] = rows;
+        // نعرض حتى ثلاثة مواسم صالحة، مع إعطاء الأولوية للأحدث.
+        if (supported.length >= 3) break;
+      } catch (error) {
+        if (FootballApi.isSeasonAccessError(error)) {
+          lastSeasonError = error is ApiException ? error : null;
+          continue;
+        }
+        rethrow;
       }
-    } catch (_) {
-      // If the season-list endpoint is unavailable or quota-limited,
-      // keep the current + next season choices and try the requested season.
-      _seasonOptions = ApiConfig.requestedSeasons;
-      if (!_seasonOptions.contains(_season)) _season = ApiConfig.currentSeason;
     }
-    return FootballApi.instance.leagues(season: _season);
+
+    _seasonOptions = supported.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+    if (_seasonOptions.isEmpty) {
+      if (lastSeasonError != null) throw lastSeasonError;
+      throw const ApiException(
+        'لم يعثر التطبيق على موسم متاح لهذه البطولات في حساب API-Football. تحقق من صلاحية الحساب والخطة والتغطية.',
+      );
+    }
+
+    if (!_seasonOptions.contains(_season)) {
+      _season = _seasonOptions.contains(current) ? current : _seasonOptions.first;
+    }
+    return supported[_season] ?? supported[_seasonOptions.first]!;
   }
 
   String _coverageKey() => switch (_mode) {
