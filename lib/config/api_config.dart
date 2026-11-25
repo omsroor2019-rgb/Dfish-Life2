@@ -11,27 +11,27 @@ class ApiConfig {
   static const String footballApiKey =
       String.fromEnvironment('API_FOOTBALL_KEY');
 
+  /// Optional Highlightly Football API key. The existing API-Football
+  /// integration remains available when this value is empty.
+  static const String highlightlyApiKey =
+      String.fromEnvironment('HIGHLIGHTLY_API_KEY');
+
+  static bool get isHighlightlyConfigured =>
+      highlightlyApiKey.trim().isNotEmpty &&
+      !highlightlyApiKey.contains('YOUR_') &&
+      !highlightlyApiKey.contains('PASTE_');
+
   /// سنة بدء الموسم الجاري (مثلاً 2026 لموسم 2026/2027).
   static int get currentSeason => DateTime.now().year;
 
-  /// نطاق السنوات التي نجربها من الأحدث إلى الأقدم.
-  /// القائمة لا تعني أن حساب API يملك صلاحية الوصول إلى كل سنة.
-  static List<int> get requestedSeasons => <int>[
-        currentSeason + 1,
-        currentSeason,
-        currentSeason - 1,
-        currentSeason - 2,
-        currentSeason - 3,
-        currentSeason - 4,
-      ];
+  /// خيارات الموسم المطلوبة في DFISH LIVE: الموسم الجاري والموسم التالي.
+  /// توفر البيانات وإمكانية الوصول إليهما يعتمدان على البطولة والخطة.
+  static List<int> get requestedSeasons =>
+      <int>[currentSeason + 1, currentSeason];
 
-  /// المواسم التاريخية التي تتيحها الخطة المجانية وفق توثيق المزود لعام 2026.
-  /// تستخدم كمرجع احتياطي فقط؛ التحقق النهائي يتم بطلب API الفعلي.
-  static List<int> get freePlanSeasons => <int>[
-        currentSeason - 2,
-        currentSeason - 3,
-        currentSeason - 4,
-      ];
+  /// اسم قديم أبقيناه للتوافق مع أي ملفات أخرى في المشروع.
+  /// لا يعني أن هذه السنوات كلها متاحة في الخطة المجانية.
+  static List<int> get freePlanSeasons => requestedSeasons;
 
   static bool get isFootballConfigured =>
       footballApiKey.trim().isNotEmpty &&
