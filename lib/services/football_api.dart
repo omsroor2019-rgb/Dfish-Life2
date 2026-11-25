@@ -285,6 +285,7 @@ class FootballApi {
         }
         return const Duration(hours: 3);
       case 'leagues':
+      case 'leagues/seasons':
         return const Duration(hours: 24);
       case 'fixtures/events':
       case 'fixtures/statistics':
@@ -428,6 +429,22 @@ class FootballApi {
       'timezone': footballTimezone,
     });
     return (data['response'] as List?) ?? const [];
+  }
+
+  /// جميع سنوات المواسم التي يعرضها مزوّد API-Football على مستوى الخدمة.
+  /// هذه القائمة لا تعني أن كل موسم متاح لكل بطولة أو لكل خطة اشتراك.
+  Future<List<int>> availableSeasons() async {
+    final data = await get('leagues/seasons');
+    final rows = (data['response'] as List?) ?? const [];
+    final years = <int>{};
+    for (final row in rows) {
+      final year = row is num ? row.toInt() : int.tryParse(row.toString());
+      if (year != null && year >= 1900 && year <= ApiConfig.currentSeason + 2) {
+        years.add(year);
+      }
+    }
+    final result = years.toList()..sort((a, b) => b.compareTo(a));
+    return result;
   }
 
   Future<List<dynamic>> leagues({required int season}) async {
