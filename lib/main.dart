@@ -747,7 +747,8 @@ class StandingsScreen extends StatefulWidget {
 
 class _StandingsScreenState extends State<StandingsScreen> {
   late Future<List<dynamic>> _leagues;
-  int _season = ApiConfig.freePlanSeasons.last;
+  int _season = ApiConfig.currentSeason;
+  List<int> _seasonOptions = ApiConfig.requestedSeasons;
   int _mode = 0;
   int? _selectedLeagueId;
 
@@ -759,7 +760,37 @@ class _StandingsScreenState extends State<StandingsScreen> {
 
   void _loadLeagues() {
     _selectedLeagueId = null;
-    _leagues = FootballApi.instance.leagues(season: _season);
+    _leagues = _loadAvailableSeasonsAndLeagues();
+  }
+
+  Future<List<dynamic>> _loadAvailableSeasonsAndLeagues() async {
+    try {
+      final available = await FootballApi.instance.availableSeasons();
+      final current = ApiConfig.currentSeason;
+      final relevant = available
+          .where((year) => year == current || year == current + 1)
+          .toSet()
+          .toList()
+        ..sort((a, b) => b.compareTo(a));
+
+      // Keep 2026 and 2027 available as requested, even if the provider
+      // has not published one of them globally yet. The selected league
+      // endpoint will report plan/coverage restrictions precisely.
+      _seasonOptions = relevant.isNotEmpty
+          ? relevant
+          : ApiConfig.requestedSeasons;
+      if (!_seasonOptions.contains(_season)) {
+        _season = _seasonOptions.contains(current)
+            ? current
+            : _seasonOptions.first;
+      }
+    } catch (_) {
+      // If the season-list endpoint is unavailable or quota-limited,
+      // keep the current + next season choices and try the requested season.
+      _seasonOptions = ApiConfig.requestedSeasons;
+      if (!_seasonOptions.contains(_season)) _season = ApiConfig.currentSeason;
+    }
+    return FootballApi.instance.leagues(season: _season);
   }
 
   String _coverageKey() => switch (_mode) {
@@ -830,7 +861,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
                   value: _season,
                   dropdownColor: cPanel,
                   decoration: const InputDecoration(labelText: 'الموسم'),
-                  items: ApiConfig.freePlanSeasons.reversed.map((year) => DropdownMenuItem<int>(
+                  items: _seasonOptions.map((year) => DropdownMenuItem<int>(
                     value: year,
                     child: Text('$year / ${year + 1}', style: const TextStyle(fontSize: 13)),
                   )).toList(),
@@ -1085,7 +1116,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     setState(() {
       _query = q;
-      _future = _mode == 0 ? FootballApi.instance.searchPlayers(q, ApiConfig.freePlanSeasons.last) : FootballApi.instance.searchTeams(q);
+      _future = _mode == 0 ? FootballApi.instance.searchPlayers(q, ApiConfig.currentSeason) : FootballApi.instance.searchTeams(q);
     });
   }
 
@@ -1137,14 +1168,14 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.freePlanSeasons.last}'});
+    _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.currentSeason}'});
     _transfers = FootballApi.instance.get('transfers', {'player': '${widget.playerId}'}).then((v) => (v['response'] as List?) ?? const []);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ملف اللاعب', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16))), body: FutureBuilder<Map<String, dynamic>>(future: _future, builder: (context, snapshot) {
     if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: cMint));
-    if (snapshot.hasError) return Padding(padding: const EdgeInsets.all(16), child: ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.freePlanSeasons.last}'}))));
+    if (snapshot.hasError) return Padding(padding: const EdgeInsets.all(16), child: ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _future = FootballApi.instance.get('players', {'id': '${widget.playerId}', 'season': '${ApiConfig.currentSeason}'}))));
     final rows = (snapshot.data?['response'] as List?) ?? [];
     if (rows.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: EmptyPanel(title: 'ملف اللاعب غير متاح', subtitle: 'لا توجد إحصائيات لهذا اللاعب في الموسم الحالي.'));
     final row = rows.first;
@@ -1185,7 +1216,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
   late Future<Map<String, dynamic>> _team;
   late Future<List<dynamic>> _players;
   @override
-  void initState() { super.initState(); _team = FootballApi.instance.get('teams', {'id': '${widget.teamId}'}); _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.freePlanSeasons.last); }
+  void initState() { super.initState(); _team = FootballApi.instance.get('teams', {'id': '${widget.teamId}'}); _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.currentSeason); }
   @override
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ملف النادي', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16))), body: ListView(padding: const EdgeInsets.all(16), children: [
     FutureBuilder<Map<String, dynamic>>(future: _team, builder: (context, snapshot) {
@@ -1199,7 +1230,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
     const SizedBox(height: 16), const SectionHeading('قائمة اللاعبين'), const SizedBox(height: 10),
     FutureBuilder<List<dynamic>>(future: _players, builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل قائمة اللاعبين');
-      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.freePlanSeasons.last)));
+      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() => _players = FootballApi.instance.teamPlayers(widget.teamId, ApiConfig.currentSeason)));
       final rows = snapshot.data ?? [];
       if (rows.isEmpty) return const EmptyPanel(title: 'قائمة اللاعبين غير متاحة', subtitle: 'قد لا تكون تغطية الموسم الحالي متاحة بعد.');
       return Column(children: rows.map((r) { final p = r['player'] ?? {}; final id = (p['id'] as num?)?.toInt() ?? 0; return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerProfileScreen(playerId: id, name: _mapText(p['name'])))), child: Row(children: [NetworkBadge(url: p['photo']?.toString() ?? '', label: _mapText(p['name']), size: 38), const SizedBox(width: 10), Expanded(child: Text(_mapText(p['name']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))), Text(_mapText(p['nationality'], ''), style: const TextStyle(color: cMuted, fontSize: 10)), const SizedBox(width: 7), const Icon(LucideIcons.chevronLeft, color: cMuted, size: 16)]))); }).toList());
