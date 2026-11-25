@@ -27,5 +27,11 @@ void main() {
     exitCode = 1;
     return;
   }
+  final highlightlyKey = Platform.environment['HIGHLIGHTLY_API_KEY'] ?? '';
+  if (highlightlyKey.trim().isEmpty) {
+    stdout.writeln('ملاحظة: Highlightly غير مفعّل؛ سيستمر التطبيق باستخدام API-Football فقط.');
+  } else {
+    stdout.writeln('تم العثور على مفتاح Highlightly الاختياري.');
+  }
   stdout.writeln('تم التحقق من إعدادات Firebase ووجود مفتاح API-Football.');
 }
