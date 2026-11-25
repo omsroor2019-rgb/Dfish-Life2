@@ -34,6 +34,10 @@ void main() {
       expect(LeagueCatalog.isAllowed(row(country: 'Japan', name: 'J1 League')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'South-Korea', name: 'K League 1')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'China', name: 'Super League')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Brazil', name: 'Serie A')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Argentina', name: 'Liga Profesional Argentina')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Mexico', name: 'Liga MX')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'Egypt', name: 'Premier League')), isTrue);
     });
 
     test('includes only the requested continental cups', () {
@@ -42,12 +46,14 @@ void main() {
       expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'AFC Champions League Two', type: 'Cup')), isTrue);
       expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'UEFA Europa League', type: 'Cup')), isTrue);
       expect(LeagueCatalog.isAllowedFixture({'league': {'country': 'World', 'name': 'UEFA Champions League'}}), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'FIFA World Cup', type: 'Cup')), isTrue);
+      expect(LeagueCatalog.isAllowed(row(country: 'World', name: 'Copa Libertadores', type: 'Cup')), isTrue);
     });
 
     test('excludes other cups, lower divisions and unrelated countries', () {
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'Copa del Rey', type: 'Cup')), isFalse);
       expect(LeagueCatalog.isAllowed(row(country: 'Spain', name: 'Primera División RFEF - Group 3')), isFalse);
-      expect(LeagueCatalog.isAllowed(row(country: 'Brazil', name: 'Serie A')), isFalse);
+      expect(LeagueCatalog.isAllowed(row(country: 'Brazil', name: 'Serie B')), isFalse);
     });
 
     test('translates league and country names into Arabic', () {
@@ -56,6 +62,39 @@ void main() {
       expect(LeagueCatalog.displayCountry(spain), 'إسبانيا');
       expect(LeagueCatalog.displayCountry(row(country: 'Saudi-Arabia', name: 'Pro League')), 'السعودية');
       expect(LeagueCatalog.displayNameFor('Saudi-Arabia', 'Pro League'), 'دوري روشن السعودي');
+    });
+
+    test('prioritizes live games and major competitions', () {
+      final liveJapanese = {
+        'fixture': {'status': {'short': '2H'}},
+        'league': {'country': 'Japan', 'name': 'J1 League'},
+      };
+      final upcomingChampionsLeague = {
+        'fixture': {'status': {'short': 'NS'}},
+        'league': {'country': 'World', 'name': 'UEFA Champions League'},
+      };
+      final upcomingPremierLeague = {
+        'fixture': {'status': {'short': 'NS'}},
+        'league': {'country': 'England', 'name': 'Premier League'},
+      };
+      expect(LeagueCatalog.fixtureStatusPriority(liveJapanese), 0);
+      expect(LeagueCatalog.fixtureStatusPriority(upcomingPremierLeague), 1);
+      expect(LeagueCatalog.fixturePriority(upcomingChampionsLeague),
+          lessThan(LeagueCatalog.fixturePriority(upcomingPremierLeague)));
+      expect(LeagueCatalog.fixturePriority(upcomingPremierLeague),
+          lessThan(LeagueCatalog.fixturePriority(liveJapanese)));
+      expect(LeagueCatalog.compareFixtures(
+          upcomingChampionsLeague, upcomingPremierLeague), lessThan(0));
+      expect(LeagueCatalog.compareFixtures(
+          upcomingPremierLeague, liveJapanese), lessThan(0));
+    });
+
+    test('labels continental competition regions correctly', () {
+      expect(LeagueCatalog.displayCompetitionCountry('World', 'UEFA Champions League'), 'أوروبا');
+      expect(LeagueCatalog.displayCompetitionCountry('World', 'AFC Champions League Elite'), 'آسيا');
+      expect(LeagueCatalog.displayCompetitionCountry('World', 'CAF Champions League'), 'أفريقيا');
+      expect(LeagueCatalog.displayCompetitionCountry('World', 'Copa Libertadores'), 'أمريكا الجنوبية');
+      expect(LeagueCatalog.displayCompetitionCountry('World', 'FIFA World Cup'), 'دولي');
     });
 
     test('checks separate data coverage flags', () {
