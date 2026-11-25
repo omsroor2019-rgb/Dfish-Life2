@@ -210,7 +210,23 @@ class FootballApi {
     if (lower.contains('no data') || lower.contains('no results')) {
       return 'لا توجد بيانات متاحة لهذه البطولة والموسم.';
     }
+    if (lower.contains('season') &&
+        (lower.contains('not available') || lower.contains('not allowed') ||
+            lower.contains('do not have access') || lower.contains('free plan'))) {
+      return 'الخطة الحالية لا تتيح هذا الموسم. جرّب موسماً آخر متاحاً في حسابك.';
+    }
     return message;
+  }
+
+  /// يسمح لشاشة البطولات بتجربة موسم أقدم فقط عندما يرفض المزود الموسم
+  /// بسبب صلاحية الخطة؛ أخطاء الحساب الموقوف أو الشبكة لا تُخفى بالمحاولات.
+  static bool isSeasonAccessError(Object error) {
+    final message = error is ApiException ? error.message : error.toString();
+    final lower = message.toLowerCase();
+    return lower.contains('لا تتيح هذا الموسم') ||
+        (lower.contains('season') &&
+            (lower.contains('not available') || lower.contains('not allowed') ||
+                lower.contains('do not have access') || lower.contains('free plan')));
   }
 
   bool _isQuotaError(String message) {
@@ -408,11 +424,9 @@ class FootballApi {
         .map((row) => Map<String, dynamic>.from(row))
         .where(LeagueCatalog.isAllowedFixture)
         .toList();
-    filtered.sort((a, b) {
-      final aDate = a['fixture']?['date']?.toString() ?? '';
-      final bDate = b['fixture']?['date']?.toString() ?? '';
-      return aDate.compareTo(bDate);
-    });
+    // أولوية البطولة أولاً حتى لا تتصدر مباريات الدوريات الأقل أهمية
+    // الشاشة لمجرد أن موعدها أبكر؛ داخل البطولة نقدّم المباراة المباشرة.
+    filtered.sort(LeagueCatalog.compareFixtures);
     return filtered;
   }
 
