@@ -12,10 +12,12 @@ import 'package:url_launcher/url_launcher.dart';
 import 'admin/admin_portal.dart';
 import 'streams/streams_screen.dart';
 import 'services/football_api.dart';
+import 'services/highlightly_api.dart';
 import 'services/firebase_runtime.dart';
 import 'config/api_config.dart';
 import 'config/league_catalog.dart';
 import 'utils/arabic_time.dart';
+import 'utils/arabic_football.dart';
 
 const Color cBg = Color(0xFF0B1018);
 const Color cPanel = Color(0xFF121B27);
@@ -91,7 +93,7 @@ class MatchData {
         status = json['fixture']?['status']?['short']?.toString() ?? 'NS',
         statusLong = json['fixture']?['status']?['long']?.toString() ?? '',
         leagueId = (json['league']?['id'] as num?)?.toInt() ?? 0,
-        league = LeagueCatalog.displayNameFor(json['league']?['country']?.toString() ?? '', json['league']?['name']?.toString() ?? 'بطولة'),
+        league = ArabicFootball.league(LeagueCatalog.displayNameFor(json['league']?['country']?.toString() ?? '', json['league']?['name']?.toString() ?? 'بطولة'), json['league']?['country']?.toString() ?? ''),
         leagueLogo = json['league']?['logo']?.toString() ?? '',
         country = LeagueCatalog.displayCompetitionCountry(
           json['league']?['country']?.toString() ?? '',
@@ -161,7 +163,7 @@ class MatchData {
   }
 }
 
-String _mapText(dynamic value, [String fallback = '—']) => value == null || value.toString().trim().isEmpty ? fallback : value.toString();
+String _mapText(dynamic value, [String fallback = '—']) => value == null || value.toString().trim().isEmpty ? fallback : ArabicFootball.text(value.toString());
 
 String _footballText(dynamic value) {
   final raw = value?.toString().trim() ?? '';
@@ -195,7 +197,7 @@ String _footballText(dynamic value) {
     'loan': 'إعارة', 'free': 'انتقال مجاني', 'transfer': 'انتقال',
     'regular season': 'الموسم العادي',
   };
-  return labels[raw.toLowerCase()] ?? raw;
+  return labels[raw.toLowerCase()] ?? ArabicFootball.text(raw);
 }
 
 dynamic _firstOrEmpty(dynamic value) => value is List && value.isNotEmpty ? value.first : <String, dynamic>{};
@@ -285,13 +287,7 @@ class _AppShellState extends State<AppShell> {
   final GlobalKey<_HomeScreenState> _homeKey = GlobalKey<_HomeScreenState>();
   final GlobalKey<_MatchesScreenState> _matchesKey = GlobalKey<_MatchesScreenState>();
   late final List<Widget> _pages = [
-    HomeScreen(
-      key: _homeKey,
-      onOpenMatches: () {
-        setState(() => _index = 1);
-        _matchesKey.currentState?.refreshLiveIfToday();
-      },
-    ),
+    HomeScreen(key: _homeKey),
     MatchesScreen(key: _matchesKey),
     const StandingsScreen(),
     const StreamMatchesScreen(),
@@ -353,8 +349,7 @@ class _AppShellState extends State<AppShell> {
 
 // ---------- Home ----------
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.onOpenMatches});
-  final VoidCallback? onOpenMatches;
+  const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -400,26 +395,8 @@ class _HomeScreenState extends State<HomeScreen> {
           final matches = (snapshot.data ?? []).map((e) => MatchData(Map<String, dynamic>.from(e as Map))).toList();
           final stale = FootballApi.instance.lastResponseWasStale;
           if (matches.isEmpty) return Column(children: [if (stale) const CacheNotice(), const EmptyPanel(title: 'لا توجد مباريات مدرجة اليوم', subtitle: 'قد لا تكون هناك مباريات أو قد لا يغطي المصدر هذه البطولة.')]);
-          // يعيد FootballApi ترتيب القائمة: البطولات الأهم أولاً، ثم
-          // المباريات المباشرة داخل كل أولوية؛ نعرض 12 بدلاً من ست فقط.
-          final selected = matches.take(12).toList();
-          return Column(children: [
-            if (stale) const CacheNotice(),
-            ...selected.map((m) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: MatchTile(match: m),
-            )),
-            if (matches.length > selected.length || matches.isNotEmpty)
-              Align(
-                alignment: Alignment.center,
-                child: TextButton.icon(
-                  onPressed: widget.onOpenMatches,
-                  icon: const Icon(LucideIcons.arrowLeft, size: 16),
-                  label: const Text('عرض جميع المباريات'),
-                  style: TextButton.styleFrom(foregroundColor: cMint),
-                ),
-              ),
-          ]);
+          final selected = matches.where((m) => m.isLive).toList()..addAll(matches.where((m) => !m.isLive).take(5));
+          return Column(children: [if (stale) const CacheNotice(), ...selected.take(6).map((m) => Padding(padding: const EdgeInsets.only(bottom: 10), child: MatchTile(match: m)))]);
         },
       ),
       const SizedBox(height: 12),
@@ -546,9 +523,9 @@ class MatchTile extends StatelessWidget {
   );
 
   Widget _team(String name, String logo, bool winner, {bool right = false}) => Row(mainAxisAlignment: right ? MainAxisAlignment.start : MainAxisAlignment.end, children: [
-    if (!right) ...[Flexible(child: Text(name, maxLines: 2, textAlign: TextAlign.end, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: winner ? FontWeight.w800 : FontWeight.w600))), const SizedBox(width: 7)],
+    if (!right) ...[Flexible(child: Text(ArabicFootball.team(name), maxLines: 2, textAlign: TextAlign.end, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: winner ? FontWeight.w800 : FontWeight.w600))), const SizedBox(width: 7)],
     NetworkBadge(url: logo, label: name, size: 34),
-    if (right) ...[const SizedBox(width: 7), Flexible(child: Text(name, maxLines: 2, textAlign: TextAlign.start, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: winner ? FontWeight.w800 : FontWeight.w600)))],
+    if (right) ...[const SizedBox(width: 7), Flexible(child: Text(ArabicFootball.team(name), maxLines: 2, textAlign: TextAlign.start, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: winner ? FontWeight.w800 : FontWeight.w600)))],
   ]);
 }
 
@@ -562,7 +539,33 @@ class MatchDetailsScreen extends StatefulWidget {
 
 class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   int _tab = 0;
-  static const _tabs = ['الملخص', 'الأحداث', 'التشكيلة', 'الإحصائيات', 'اللاعبون', 'المواجهات'];
+  Future<Map<String, dynamic>?>? _highlightlyMatchFuture;
+  Timer? _highlightlyLiveTimer;
+  static const _tabs = ['الملخص', 'الفعاليات', 'التشكيلات', 'الإحصائيات', 'بيانات اللاعبين', 'تفاصيل المباراة', 'المواجهات'];
+
+  @override
+  void initState() {
+    super.initState();
+    if (HighlightlyApi.instance.isConfigured) {
+      final match = widget.match;
+      _highlightlyMatchFuture = HighlightlyApi.instance.resolveMatch(
+        kickoff: match.kickoff,
+        homeTeam: match.home,
+        awayTeam: match.away,
+      );
+      if (match.isLive) {
+        _highlightlyLiveTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+          if (mounted && (_tab == 1 || _tab == 3 || _tab == 4)) setState(() {});
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _highlightlyLiveTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -584,16 +587,16 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Panel(padding: const EdgeInsets.all(18), child: Column(children: [
-          Text(m.league, style: const TextStyle(color: cMuted, fontSize: 12)),
+          Text(ArabicFootball.league(m.league, m.country), style: const TextStyle(color: cMuted, fontSize: 12)),
           const SizedBox(height: 18),
           Row(children: [
-            Expanded(child: _bigTeam(m.home, m.homeLogo)),
+            Expanded(child: _bigTeam(ArabicFootball.team(m.home), m.homeLogo)),
             Column(children: [
               Text(m.score, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
               const SizedBox(height: 4),
               Text(m.timeLabel, style: TextStyle(color: m.isLive ? cMint : cMuted, fontWeight: FontWeight.w700, fontSize: 11)),
             ]),
-            Expanded(child: _bigTeam(m.away, m.awayLogo)),
+            Expanded(child: _bigTeam(ArabicFootball.team(m.away), m.awayLogo)),
           ]),
           const SizedBox(height: 12),
           Text(_footballText(m.statusLong), style: const TextStyle(color: cMuted, fontSize: 11)),
@@ -616,13 +619,464 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         ),
         const SizedBox(height: 12),
         if (_tab == 0) _summary(m)
-        else if (_tab == 1) _dataList('fixtures/events')
-        else if (_tab == 2) _dataList('fixtures/lineups')
-        else if (_tab == 3) _dataList('fixtures/statistics')
-        else if (_tab == 4) _dataList('fixtures/players')
+        else if (_tab == 1) _highlightlySection('events', _dataList('fixtures/events'))
+        else if (_tab == 2) _highlightlySection('lineups', _dataList('fixtures/lineups'))
+        else if (_tab == 3) _highlightlySection('statistics', _dataList('fixtures/statistics'))
+        else if (_tab == 4) _highlightlySection('players', _dataList('fixtures/players'))
+        else if (_tab == 5) _highlightlySection('details', _summary(m))
         else _headToHead(m),
       ]),
     );
+  }
+
+  Widget _highlightlySection(String kind, Widget fallback) {
+    final future = _highlightlyMatchFuture;
+    if (!HighlightlyApi.instance.isConfigured || future == null) return fallback;
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: future,
+      builder: (context, matchSnapshot) {
+        if (matchSnapshot.connectionState == ConnectionState.waiting) {
+          return const LoadingPanel(label: 'جاري مطابقة المباراة مع مصدر البيانات الإضافي');
+        }
+        if (matchSnapshot.hasError) {
+          return Column(children: [
+            _sourceFallbackNotice('تعذر الوصول إلى Highlightly؛ نعرض البيانات من المصدر الحالي.'),
+            fallback,
+          ]);
+        }
+        final match = matchSnapshot.data;
+        final id = (match?['id'] as num?)?.toInt();
+        if (id == null || id <= 0) {
+          return Column(children: [
+            _sourceFallbackNotice('لم نعثر على تطابق مؤكد لهذه المباراة في Highlightly؛ نعرض بيانات API-Football.'),
+            fallback,
+          ]);
+        }
+        return FutureBuilder<dynamic>(
+          key: ValueKey('hl-${widget.match.id}-$id-$kind'),
+          future: _loadHighlightlySection(kind, id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const LoadingPanel(label: 'جاري تحميل بيانات المباراة');
+            }
+            if (snapshot.hasError) {
+              return Column(children: [
+                _sourceFallbackNotice('لم تتوفر هذه البيانات من Highlightly؛ نعرض بيانات المصدر الحالي عند توفرها.'),
+                fallback,
+              ]);
+            }
+            final data = snapshot.data;
+            if (data == null) return fallback;
+            return _renderHighlightlySection(kind, data);
+          },
+        );
+      },
+    );
+  }
+
+  Future<dynamic> _loadHighlightlySection(String kind, int id) {
+    switch (kind) {
+      case 'events': return HighlightlyApi.instance.liveEvents(id);
+      case 'lineups': return HighlightlyApi.instance.lineups(id);
+      case 'statistics': return HighlightlyApi.instance.matchStatistics(id);
+      case 'players': return HighlightlyApi.instance.boxScore(id);
+      case 'details': return HighlightlyApi.instance.matchDetails(id);
+      default: return Future<dynamic>.value(null);
+    }
+  }
+
+  Widget _sourceFallbackNotice(String message) => Padding(
+    padding: const EdgeInsets.only(bottom: 9),
+    child: Panel(padding: const EdgeInsets.all(10), child: Row(children: [
+      const Icon(LucideIcons.info, color: cMint, size: 16),
+      const SizedBox(width: 8),
+      Expanded(child: Text(message, style: const TextStyle(color: cMuted, fontSize: 10, height: 1.5))),
+    ])),
+  );
+
+  Widget _renderHighlightlySection(String kind, dynamic raw) {
+    if (kind == 'events') {
+      final rows = HighlightlyApi.asList(raw);
+      if (rows.isEmpty) return const EmptyPanel(title: 'لا توجد فعاليات مسجلة', subtitle: 'قد لا تكون أحداث هذه المباراة متاحة بعد.');
+      return Column(children: rows.map((event) {
+        final minute = _mapText(event['time'], '—');
+        final type = ArabicFootball.text(event['type'] ?? 'حدث');
+        final team = event['team'] is Map ? ArabicFootball.team(event['team']['name']?.toString() ?? '') : '';
+        final player = _mapText(event['player'], '');
+        final assist = _mapText(event['assist'], '');
+        final substituted = _mapText(event['substituted'], '');
+        return Padding(padding: const EdgeInsets.only(bottom: 8), child: Panel(padding: const EdgeInsets.all(12), child: Row(children: [
+          Container(width: 53, padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: cPanel2, borderRadius: BorderRadius.circular(9)), child: Text(minute, textAlign: TextAlign.center, style: const TextStyle(color: cMint, fontWeight: FontWeight.w900, fontSize: 11))),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(type, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+            if (player.isNotEmpty) Text(player, style: const TextStyle(color: cText, fontSize: 10)),
+            if (assist.isNotEmpty) Text('صناعة: $assist', style: const TextStyle(color: cMuted, fontSize: 9)),
+            if (substituted.isNotEmpty) Text('خروج: $substituted', style: const TextStyle(color: cMuted, fontSize: 9)),
+            if (team.isNotEmpty) Text(team, style: const TextStyle(color: cMuted, fontSize: 9)),
+          ])),
+        ])));
+      }).toList());
+    }
+
+    if (kind == 'lineups') {
+      final data = HighlightlyApi.asObject(raw);
+      final home = data?['homeTeam'];
+      final away = data?['awayTeam'];
+      if (home is! Map || away is! Map) return const EmptyPanel(title: 'التشكيلة لم تُعلن بعد', subtitle: 'تُتاح التشكيلات عادةً قبل انطلاق المباراة بوقت قصير.');
+      return Column(children: [
+        _highlightlyPitch(Map<String, dynamic>.from(home)),
+        const SizedBox(height: 12),
+        _highlightlyPitch(Map<String, dynamic>.from(away)),
+      ]);
+    }
+
+    if (kind == 'statistics') {
+      final rows = HighlightlyApi.asList(raw);
+      if (rows.isEmpty) return const EmptyPanel(title: 'إحصائيات المباراة غير متاحة', subtitle: 'لم ينشر مزوّد البيانات إحصائيات هذه المباراة بعد.');
+      return Column(children: rows.map((teamRow) {
+        final team = teamRow['team'] is Map ? Map<String, dynamic>.from(teamRow['team']) : <String, dynamic>{};
+        final stats = teamRow['statistics'] is List ? teamRow['statistics'] as List : const [];
+        return Padding(padding: const EdgeInsets.only(bottom: 10), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [NetworkBadge(url: _mapText(team['logo'], ''), label: _mapText(team['name'], ''), size: 28), const SizedBox(width: 8), Expanded(child: Text(ArabicFootball.team(_mapText(team['name'], 'الفريق')), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)))]),
+          const Divider(color: cLine),
+          ...stats.whereType<Map>().map((stat) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [
+            Expanded(child: Text(ArabicFootball.text(stat['displayName'] ?? stat['name']), style: const TextStyle(color: cMuted, fontSize: 11))),
+            Text(_highlightlyStatValue(stat['value'], stat['displayName']), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+          ]))),
+        ])));
+      }).toList());
+    }
+
+    if (kind == 'players') {
+      final rows = HighlightlyApi.asList(raw);
+      if (rows.isEmpty) return const EmptyPanel(title: 'بيانات اللاعبين غير متاحة', subtitle: 'قد لا يوفر مزوّد البيانات إحصائيات فردية لهذه المباراة.');
+      return Column(children: rows.map((teamRow) {
+        final team = teamRow['team'] is Map ? Map<String, dynamic>.from(teamRow['team']) : <String, dynamic>{};
+        final players = teamRow['players'] is List ? teamRow['players'] as List : const [];
+        return Padding(padding: const EdgeInsets.only(bottom: 12), child: Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [NetworkBadge(url: _mapText(team['logo'], ''), label: _mapText(team['name'], ''), size: 28), const SizedBox(width: 8), Expanded(child: Text(ArabicFootball.team(_mapText(team['name'], 'الفريق')), style: const TextStyle(fontWeight: FontWeight.w900)))]),
+          const Divider(color: cLine),
+          ...players.whereType<Map>().map((player) {
+            final id = (player['id'] as num?)?.toInt();
+            final profileId = id != null && id > 0 ? id : null;
+            final name = _mapText(player['name'], 'لاعب');
+            final stats = player['statistics'] is List && (player['statistics'] as List).isNotEmpty && (player['statistics'] as List).first is Map
+                ? Map<String, dynamic>.from((player['statistics'] as List).first as Map)
+                : (player['statistics'] is Map ? Map<String, dynamic>.from(player['statistics']) : <String, dynamic>{});
+            final metrics = <String>[
+              if (player['shirtNumber'] != null) 'رقم ${player['shirtNumber']}',
+              if (player['isCaptain'] == true) 'قائد الفريق',
+              if (player['isSubstitute'] == true) 'شارك بديلاً',
+              if (player['offsides'] != null) 'تسلل ${player['offsides']}',
+              if (player['minutesPlayed'] != null) '${player['minutesPlayed']} د',
+              'أهداف ${stats['goalsScored'] ?? 0}',
+              'صناعة ${stats['assists'] ?? 0}',
+              'تسديدات ${stats['shotsTotal'] ?? stats['shotsOnTarget'] ?? '—'}',
+              if (player['matchRating'] != null) 'التقييم ${player['matchRating']}',
+            ];
+            return InkWell(
+              onTap: profileId == null ? null : () => _showHighlightlyPlayer(profileId, name, Map<String, dynamic>.from(player)),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [
+                NetworkBadge(url: _mapText(player['logo'], ''), label: name, size: 36),
+                const SizedBox(width: 9),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                  Text('${ArabicFootball.text(player['position'] ?? '')} · ${metrics.join(' · ')}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: cMuted, fontSize: 9)),
+                ])),
+                const Icon(LucideIcons.chevronLeft, size: 16, color: cMuted),
+              ])),
+            );
+          }),
+        ])));
+      }).toList());
+    }
+
+    if (kind == 'details') {
+      final detail = HighlightlyApi.asObject(raw);
+      if (detail == null) return const EmptyPanel(title: 'تفاصيل المباراة غير متاحة', subtitle: 'لا توجد بيانات إضافية لهذه المباراة حالياً.');
+      final league = detail['league'] is Map ? Map<String, dynamic>.from(detail['league']) : <String, dynamic>{};
+      final homeTeam = detail['homeTeam'] is Map ? Map<String, dynamic>.from(detail['homeTeam']) : <String, dynamic>{};
+      final awayTeam = detail['awayTeam'] is Map ? Map<String, dynamic>.from(detail['awayTeam']) : <String, dynamic>{};
+      final country = detail['country'] is Map ? Map<String, dynamic>.from(detail['country']) : <String, dynamic>{};
+      final venue = detail['venue'] is Map ? Map<String, dynamic>.from(detail['venue']) : <String, dynamic>{};
+      final referee = detail['referee'] is Map ? Map<String, dynamic>.from(detail['referee']) : <String, dynamic>{};
+      final forecast = detail['forecast'] is Map ? Map<String, dynamic>.from(detail['forecast']) : <String, dynamic>{};
+      final state = detail['state'] is Map ? Map<String, dynamic>.from(detail['state']) : <String, dynamic>{};
+      final score = state['score'] is Map ? Map<String, dynamic>.from(state['score']) : <String, dynamic>{};
+      final predictions = detail['predictions'] is Map ? Map<String, dynamic>.from(detail['predictions']) : <String, dynamic>{};
+      final news = detail['news'] is List ? detail['news'] as List : const [];
+      final homeShots = homeTeam['shots'] is List ? homeTeam['shots'] as List : const [];
+      final awayShots = awayTeam['shots'] is List ? awayTeam['shots'] as List : const [];
+      final homeTopPlayers = homeTeam['topPlayers'] is List ? homeTeam['topPlayers'] as List : const [];
+      final awayTopPlayers = awayTeam['topPlayers'] is List ? awayTeam['topPlayers'] as List : const [];
+      return Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('بيانات المباراة الكاملة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900, fontSize: 14)),
+        const Divider(color: cLine),
+        _infoRow('الفريق المستضيف', ArabicFootball.team(_mapText(homeTeam['name'], ''))),
+        _infoRow('الفريق الضيف', ArabicFootball.team(_mapText(awayTeam['name'], ''))),
+        _infoRow('البطولة', ArabicFootball.league(_mapText(league['name'], ''), _mapText(country['name'], ''))),
+        _infoRow('الدولة', ArabicFootball.country(_mapText(country['name'], ''))),
+        _infoRow('الموسم', _mapText(league['season'])),
+        _infoRow('الجولة', _mapText(detail['round'])),
+        _infoRow('حالة المباراة', ArabicFootball.text(state['description'])),
+        _infoRow('النتيجة', _mapText(score['current'])),
+        _infoRow('نتيجة ركلات الترجيح', _mapText(score['penalties'], '')) ,
+        _infoRow('دقيقة المباراة', _mapText(state['clock'], '')),
+        _infoRow('الملعب', _mapText(venue['name'])),
+        _infoRow('المدينة', _mapText(venue['city'])),
+        _infoRow('الدولة المستضيفة', ArabicFootball.country(_mapText(venue['country'], ''))),
+        _infoRow('سعة الملعب', _mapText(venue['capacity'])),
+        _infoRow('الحكم', _mapText(referee['name'])),
+        _infoRow('جنسية الحكم', ArabicFootball.country(_mapText(referee['nationality'], ''))),
+        _infoRow('حالة الطقس', ArabicFootball.text(forecast['status'])),
+        _infoRow('درجة الحرارة', _mapText(forecast['temperature'])),
+        if (homeShots.isNotEmpty || awayShots.isNotEmpty) ...[
+          const Divider(color: cLine),
+          const Text('تفاصيل التسديدات', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+          for (final entry in <Map<String, dynamic>>[
+            {'team': homeTeam, 'shots': homeShots},
+            {'team': awayTeam, 'shots': awayShots},
+          ])
+            if ((entry['shots'] as List).isNotEmpty) ...[
+              Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text(ArabicFootball.team(_mapText((entry['team'] as Map)['name'], 'الفريق')), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11))),
+              ...(entry['shots'] as List).whereType<Map>().take(10).map((shot) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Text('${_mapText(shot['time'])} · ${_mapText(shot['playerName'])} · ${ArabicFootball.text(shot['outcome'])} · ${ArabicFootball.text(shot['goalTarget'])}', style: const TextStyle(color: cMuted, fontSize: 9)),
+              )),
+            ],
+        ],
+        if (homeTopPlayers.isNotEmpty || awayTopPlayers.isNotEmpty) ...[
+          const Divider(color: cLine),
+          const Text('أبرز لاعبي المباراة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+          for (final entry in <Map<String, dynamic>>[
+            {'team': homeTeam, 'players': homeTopPlayers},
+            {'team': awayTeam, 'players': awayTopPlayers},
+          ])
+            if ((entry['players'] as List).isNotEmpty) ...[
+              Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text(ArabicFootball.team(_mapText((entry['team'] as Map)['name'], 'الفريق')), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11))),
+              ...(entry['players'] as List).whereType<Map>().take(5).map((topPlayer) {
+                final values = topPlayer['statistics'] is List ? topPlayer['statistics'] as List : const [];
+                final summary = values.whereType<Map>().map((stat) {
+                  final value = stat['value'];
+                  final valueText = value is Map ? value.values.join(' / ') : _mapText(value);
+                  return '${ArabicFootball.text(stat['name'])}: $valueText';
+                }).join(' · ');
+                return Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Text('${_mapText(topPlayer['name'])} · ${ArabicFootball.text(topPlayer['position'])} · $summary', style: const TextStyle(color: cMuted, fontSize: 9)));
+              }),
+            ],
+        ],
+        if ((predictions['prematch'] is List && (predictions['prematch'] as List).isNotEmpty) || (predictions['live'] is List && (predictions['live'] as List).isNotEmpty)) ...[
+          const Divider(color: cLine),
+          const Text('توقعات المباراة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+          for (final source in ['prematch', 'live'])
+            if (predictions[source] is List)
+              ...(predictions[source] as List).whereType<Map>().take(3).map((prediction) {
+                final probabilities = prediction['probabilities'] is Map ? Map<String, dynamic>.from(prediction['probabilities']) : <String, dynamic>{};
+                return Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Text('${source == 'live' ? 'توقع مباشر' : 'توقع قبل المباراة'}: ${_mapText(probabilities['home'], '')} · تعادل ${_mapText(probabilities['draw'], '')} · ${_mapText(probabilities['away'], '')}', style: const TextStyle(fontSize: 10, color: cMuted)));
+              }),
+        ],
+        if (news.isNotEmpty) ...[
+          const Divider(color: cLine),
+          const Text('أخبار مرتبطة بالمباراة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+          ...news.whereType<Map>().take(5).map((item) => Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () async {
+                final uri = Uri.tryParse(item['url']?.toString() ?? '');
+                if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+              icon: const Icon(LucideIcons.externalLink, size: 14),
+              label: Text('فتح الخبر الأصلي · ${_mapText(item['datePublished'], '')}', style: const TextStyle(fontSize: 10)),
+            ),
+          )),
+        ],
+      ]));
+    }
+    return const SizedBox.shrink();
+  }
+
+  String _highlightlyStatValue(dynamic value, dynamic label) {
+    final key = label?.toString().toLowerCase() ?? '';
+    if (value is num && value >= 0 && value <= 1 &&
+        (key.contains('accuracy') || key.contains('possession') || key.contains('percentage'))) {
+      return '${(value * 100).round()}%';
+    }
+    return _mapText(value);
+  }
+
+  Widget _highlightlyPitch(Map<String, dynamic> team) {
+    final initial = team['initialLineup'] is List ? team['initialLineup'] as List : const [];
+    final substitutes = team['substitutes'] is List ? team['substitutes'] as List : const [];
+    final name = ArabicFootball.team(_mapText(team['name'], 'الفريق'));
+    return Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [NetworkBadge(url: _mapText(team['logo'], ''), label: name, size: 31), const SizedBox(width: 8), Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w900))), Text(_mapText(team['formation']), style: const TextStyle(color: cMint, fontWeight: FontWeight.w900))]),
+      const SizedBox(height: 10),
+      Container(
+        constraints: const BoxConstraints(minHeight: 265),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(13),
+          gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF145B43), Color(0xFF0E4938)]),
+          border: Border.all(color: Colors.white.withValues(alpha: .22)),
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          for (final row in initial)
+            if (row is List)
+              Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Wrap(alignment: WrapAlignment.spaceEvenly, spacing: 8, runSpacing: 8, children: row.whereType<Map>().map((player) => _pitchPlayer(Map<String, dynamic>.from(player))).toList())),
+        ]),
+      ),
+      const SizedBox(height: 9),
+      Text('البدلاء (${substitutes.length})', style: const TextStyle(color: cMint, fontWeight: FontWeight.w800, fontSize: 11)),
+      const SizedBox(height: 5),
+      if (substitutes.isEmpty) const Text('لا توجد قائمة بدلاء متاحة', style: TextStyle(color: cMuted, fontSize: 10)),
+      Wrap(spacing: 6, runSpacing: 6, children: substitutes.whereType<Map>().map((player) => Chip(
+        visualDensity: VisualDensity.compact,
+        backgroundColor: cPanel2,
+        side: const BorderSide(color: cLine),
+        label: Text('${player['number'] ?? ''} ${player['name'] ?? ''}', style: const TextStyle(fontSize: 9)),
+      )).toList()),
+    ]));
+  }
+
+  Widget _pitchPlayer(Map<String, dynamic> player) => SizedBox(
+    width: 75,
+    child: Column(children: [
+      Container(width: 29, height: 29, alignment: Alignment.center, decoration: BoxDecoration(color: cText, shape: BoxShape.circle, border: Border.all(color: cMint, width: 2), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 3)]), child: Text(_mapText(player['number'], '—'), style: const TextStyle(color: cBg, fontSize: 10, fontWeight: FontWeight.w900))),
+      const SizedBox(height: 3),
+      Text(_mapText(player['name'], 'لاعب'), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700)),
+    ]),
+  );
+
+  Future<void> _showHighlightlyPlayer(int playerId, String name, [Map<String, dynamic>? matchPlayer]) async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cPanel,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FutureBuilder<dynamic>(
+            future: HighlightlyApi.instance.playerDetails(playerId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator(color: cMint)));
+              if (snapshot.hasError) return SizedBox(height: 150, child: Center(child: Text(snapshot.error.toString(), textAlign: TextAlign.center)));
+              final player = HighlightlyApi.asObject(snapshot.data) ?? <String, dynamic>{};
+              final profile = player['profile'] is Map ? Map<String, dynamic>.from(player['profile']) : <String, dynamic>{};
+              final position = profile['position'] is Map ? Map<String, dynamic>.from(profile['position']) : <String, dynamic>{};
+              final club = profile['club'] is Map ? Map<String, dynamic>.from(profile['club']) : <String, dynamic>{};
+              return SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text(_mapText(player['fullName'], name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 9),
+                _infoRow('النادي الحالي', ArabicFootball.team(_mapText(club['current'], ''))),
+                _infoRow('المركز', ArabicFootball.text(position['main'])),
+                _infoRow('مراكز أخرى', ArabicFootball.text(position['secondary'])),
+                _infoRow('الجنسية', ArabicFootball.country(_mapText(profile['citizenship'], ''))),
+                _infoRow('تاريخ الميلاد', _mapText(profile['birthDate'])),
+                _infoRow('مكان الميلاد', _mapText(profile['birthPlace'])),
+                _infoRow('الطول', _mapText(profile['height'])),
+                _infoRow('القدم المفضلة', ArabicFootball.text(profile['foot'])),
+                if (matchPlayer != null) ...[
+                  const Divider(color: cLine),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('إحصائيات اللاعب في هذه المباراة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900, fontSize: 12)),
+                    children: [
+                      _highlightlyPlayerMatchMetrics(matchPlayer),
+                    ],
+                  ),
+                ],
+                if (player['transfers'] is List && (player['transfers'] as List).isNotEmpty) ...[
+                  const Divider(color: cLine),
+                  const Text('سجل الانتقالات', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+                  ...(player['transfers'] as List).take(6).whereType<Map>().map((transfer) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('${_mapText(transfer['transferDate'])} · ${ArabicFootball.text(transfer['type'])} · ${ArabicFootball.team(_mapText(transfer['from'], ''))} ← ${ArabicFootball.team(_mapText(transfer['to'], ''))} · ${_mapText(transfer['fee'], '')}', style: const TextStyle(color: cMuted, fontSize: 9)),
+                  )),
+                ],
+                if (player['injuries'] is List && (player['injuries'] as List).isNotEmpty) ...[
+                  const Divider(color: cLine),
+                  const Text('سجل الإصابات', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+                  ...(player['injuries'] as List).take(5).whereType<Map>().map((injury) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('${_mapText(injury['reason'])} · ${_mapText(injury['season'])} · ${_mapText(injury['fromDate'])} · مباريات غاب عنها: ${_mapText(injury['missedGames'], '0')} · ${_mapText(injury['absentDurationInDays'], '—')} يوم', style: const TextStyle(color: cMuted, fontSize: 9)),
+                  )),
+                ],
+                if (player['marketValue'] is List && (player['marketValue'] as List).isNotEmpty) ...[
+                  const Divider(color: cLine),
+                  const Text('القيمة السوقية', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+                  ...(player['marketValue'] as List).take(5).whereType<Map>().map((value) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('${_mapText(value['recordedDate'])} · ${_mapText(value['club'])} · ${_mapText(value['currency'])}${_mapText(value['value'])} · العمر ${_mapText(value['age'])}', style: const TextStyle(color: cMuted, fontSize: 9)),
+                  )),
+                ],
+                if (player['rumours'] is Map) ...[
+                  const Divider(color: cLine),
+                  const Text('شائعات الانتقال (غير مؤكدة)', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+                  ...((player['rumours']['current'] is List) ? player['rumours']['current'] as List : const []).whereType<Map>().take(4).map((rumour) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('${ArabicFootball.team(_mapText(rumour['club'], ''))} · ${_mapText(rumour['rumourDate'])} · احتمال ${_mapText(rumour['transferProbability'])}', style: const TextStyle(color: cMuted, fontSize: 9)),
+                  )),
+                ],
+                const Divider(color: cLine),
+                const Text('إحصائيات اللاعب حسب البطولة', style: TextStyle(color: cMint, fontWeight: FontWeight.w900)),
+                FutureBuilder<dynamic>(
+                  future: HighlightlyApi.instance.playerStatistics(playerId),
+                  builder: (context, statsSnapshot) {
+                    if (statsSnapshot.connectionState == ConnectionState.waiting) return const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator(color: cMint)));
+                    if (statsSnapshot.hasError) return const Text('إحصائيات الموسم غير متاحة حالياً', style: TextStyle(color: cMuted, fontSize: 10));
+                    final stats = HighlightlyApi.asObject(statsSnapshot.data) ?? <String, dynamic>{};
+                    final competitions = stats['perCompetition'] is List ? stats['perCompetition'] as List : const [];
+                    if (competitions.isEmpty) return const Text('لا توجد إحصائيات موسمية منشورة', style: TextStyle(color: cMuted, fontSize: 10));
+                    return Column(children: competitions.take(8).whereType<Map>().map((item) => Panel(padding: const EdgeInsets.all(9), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Text('${ArabicFootball.league(_mapText(item['league'], ''))} · ${_mapText(item['season'])}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+                      Text('مباريات ${item['gamesPlayed'] ?? 0} · دقائق ${item['minutesPlayed'] ?? 0} · أهداف ${item['goals'] ?? 0} · صناعة ${item['assists'] ?? 0} · صفراء ${item['yellowCards'] ?? 0} · حمراء ${item['redCards'] ?? 0}', style: const TextStyle(color: cMuted, fontSize: 9)),
+                    ]))).toList());
+                  },
+                ),
+              ]));
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _highlightlyPlayerMatchMetrics(Map<String, dynamic> player) {
+    final raw = player['statistics'];
+    final stats = raw is List && raw.isNotEmpty && raw.first is Map
+        ? Map<String, dynamic>.from(raw.first as Map)
+        : (raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{});
+    const labels = <String, String>{
+      'goalsScored': 'الأهداف', 'goalsSaved': 'تصديات الحارس', 'goalsConceded': 'أهداف استقبلها',
+      'assists': 'التمريرات الحاسمة', 'dribblesTotal': 'المراوغات', 'dribblesSuccessful': 'مراوغات ناجحة',
+      'dribblesFailed': 'مراوغات غير ناجحة', 'dribbleSuccessRate': 'نسبة نجاح المراوغات',
+      'fouledByOthers': 'الأخطاء التي تعرض لها', 'fouledOthers': 'الأخطاء المرتكبة',
+      'tacklesTotal': 'التدخلات', 'interceptionsTotal': 'الاعتراضات', 'duelsTotal': 'الالتحامات',
+      'duelsWon': 'الالتحامات الناجحة', 'duelsLost': 'الالتحامات الخاسرة', 'duelSuccessRate': 'نجاح الالتحامات',
+      'cardsRed': 'بطاقات حمراء', 'cardsYellow': 'بطاقات صفراء', 'cardsSecondYellow': 'بطاقات صفراء ثانية',
+      'passesAccuracy': 'دقة التمرير', 'passesSuccessful': 'تمريرات ناجحة', 'passesFailed': 'تمريرات خاطئة',
+      'passesTotal': 'إجمالي التمريرات', 'passesKey': 'تمريرات مفتاحية',
+      'penaltiesScored': 'ركلات جزاء مسجلة', 'penaltiesMissed': 'ركلات جزاء ضائعة', 'penaltiesTotal': 'ركلات جزاء',
+      'penaltiesAccuracy': 'دقة ركلات الجزاء', 'shotsOnTarget': 'تسديدات على المرمى',
+      'shotsOffTarget': 'تسديدات خارج المرمى', 'shotsTotal': 'إجمالي التسديدات', 'shotsAccuracy': 'دقة التسديد',
+      'expectedGoals': 'الأهداف المتوقعة', 'expectedAssists': 'التمريرات الحاسمة المتوقعة',
+      'expectedGoalsOnTarget': 'الأهداف المتوقعة على المرمى',
+      'expectedGoalsOnTargetConceded': 'الأهداف المتوقعة المستقبلة على المرمى',
+      'expectedGoalsPrevented': 'أهداف منعها الحارس',
+    };
+    final available = labels.entries.where((entry) => stats[entry.key] != null).toList();
+    if (available.isEmpty) return const Text('لا توجد إحصائيات تفصيلية لهذا اللاعب في المباراة.', style: TextStyle(color: cMuted, fontSize: 10));
+    return Wrap(spacing: 7, runSpacing: 7, children: available.map((entry) => Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor: cPanel2,
+      side: const BorderSide(color: cLine),
+      label: Text('${entry.value}: ${stats[entry.key]}', style: const TextStyle(fontSize: 9)),
+    )).toList());
   }
 
   Widget _summary(MatchData m) => Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -713,7 +1167,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             final passCount = passes['total']?.toString() ?? '—';
             return Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(player['name']?.toString() ?? 'لاعب', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                Text(_mapText(player['name'], 'لاعب'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
                 Text('${minutes} د · ${totalGoals} هدف · ${assists} صناعة · ${shotCount} تسديدة · ${passCount} تمريرة', style: const TextStyle(color: cMuted, fontSize: 9)),
               ])),
               Text(_mapText(games['rating'], ''), style: const TextStyle(color: cMint, fontSize: 11, fontWeight: FontWeight.w800)),
@@ -773,9 +1227,10 @@ class StandingsScreen extends StatefulWidget {
 class _StandingsScreenState extends State<StandingsScreen> {
   late Future<List<dynamic>> _leagues;
   int _season = ApiConfig.currentSeason;
-  List<int> _seasonOptions = const <int>[];
+  List<int> _seasonOptions = ApiConfig.requestedSeasons;
   int _mode = 0;
   int? _selectedLeagueId;
+  bool _useHighlightly = ApiConfig.isHighlightlyConfigured;
 
   @override
   void initState() {
@@ -789,51 +1244,33 @@ class _StandingsScreenState extends State<StandingsScreen> {
   }
 
   Future<List<dynamic>> _loadAvailableSeasonsAndLeagues() async {
-    final available = await FootballApi.instance.availableSeasons();
-    final current = ApiConfig.currentSeason;
+    try {
+      final available = await FootballApi.instance.availableSeasons();
+      final current = ApiConfig.currentSeason;
+      final relevant = available
+          .where((year) => year == current || year == current + 1)
+          .toSet()
+          .toList()
+        ..sort((a, b) => b.compareTo(a));
 
-    // لا نساوي بين السنوات الموجودة عالمياً وبين السنوات المسموح بها
-    // في حساب المستخدم؛ نجرب أحدث السنوات ونحتفظ فقط بما يرجع دوريات فعلية.
-    final availableSet = available.toSet();
-    final preferredYears = ApiConfig.requestedSeasons
-        .where(availableSet.contains)
-        .toList();
-    final candidates = preferredYears.isNotEmpty
-        ? preferredYears
-        : (available.toList()..sort((a, b) => b.compareTo(a)))
-            .take(6)
-            .toList();
-
-    final supported = <int, List<dynamic>>{};
-    ApiException? lastSeasonError;
-    for (final year in candidates) {
-      try {
-        final rows = await FootballApi.instance.leagues(season: year);
-        if (rows.isNotEmpty) supported[year] = rows;
-        // نعرض حتى ثلاثة مواسم صالحة، مع إعطاء الأولوية للأحدث.
-        if (supported.length >= 3) break;
-      } catch (error) {
-        if (FootballApi.isSeasonAccessError(error)) {
-          lastSeasonError = error is ApiException ? error : null;
-          continue;
-        }
-        rethrow;
+      // Keep 2026 and 2027 available as requested, even if the provider
+      // has not published one of them globally yet. The selected league
+      // endpoint will report plan/coverage restrictions precisely.
+      _seasonOptions = relevant.isNotEmpty
+          ? relevant
+          : ApiConfig.requestedSeasons;
+      if (!_seasonOptions.contains(_season)) {
+        _season = _seasonOptions.contains(current)
+            ? current
+            : _seasonOptions.first;
       }
+    } catch (_) {
+      // If the season-list endpoint is unavailable or quota-limited,
+      // keep the current + next season choices and try the requested season.
+      _seasonOptions = ApiConfig.requestedSeasons;
+      if (!_seasonOptions.contains(_season)) _season = ApiConfig.currentSeason;
     }
-
-    _seasonOptions = supported.keys.toList()
-      ..sort((a, b) => b.compareTo(a));
-    if (_seasonOptions.isEmpty) {
-      if (lastSeasonError != null) throw lastSeasonError;
-      throw const ApiException(
-        'لم يعثر التطبيق على موسم متاح لهذه البطولات في حساب API-Football. تحقق من صلاحية الحساب والخطة والتغطية.',
-      );
-    }
-
-    if (!_seasonOptions.contains(_season)) {
-      _season = _seasonOptions.contains(current) ? current : _seasonOptions.first;
-    }
-    return supported[_season] ?? supported[_seasonOptions.first]!;
+    return FootballApi.instance.leagues(season: _season);
   }
 
   String _coverageKey() => switch (_mode) {
@@ -848,6 +1285,13 @@ class _StandingsScreenState extends State<StandingsScreen> {
         children: [
           const SectionHeading('البطولات', subtitle: 'الدوريات الكبرى والبطولات القارية'),
           const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: ChoiceChip(label: const Text('API-Football'), selected: !_useHighlightly, onSelected: (_) => setState(() => _useHighlightly = false), selectedColor: cMint.withValues(alpha: .16), labelStyle: TextStyle(color: !_useHighlightly ? cMint : cMuted))),
+            const SizedBox(width: 8),
+            Expanded(child: ChoiceChip(label: const Text('Highlightly'), selected: _useHighlightly, onSelected: (_) => setState(() => _useHighlightly = true), selectedColor: cMint.withValues(alpha: .16), labelStyle: TextStyle(color: _useHighlightly ? cMint : cMuted))),
+          ]),
+          const SizedBox(height: 10),
+          if (_useHighlightly) const HighlightlyStandingsSection(),
           Panel(
             padding: const EdgeInsets.all(11),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -860,7 +1304,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
             ]),
           ),
           const SizedBox(height: 12),
-          FutureBuilder<List<dynamic>>(
+          if (!_useHighlightly) FutureBuilder<List<dynamic>>(
             future: _leagues,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1013,7 +1457,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
       return const EmptyPanel(title: 'جدول الترتيب غير متاح', subtitle: 'لا توجد مجموعات ترتيب منشورة.');
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('$leagueName · $_season / ${_season + 1}', style: const TextStyle(color: cMint, fontSize: 12, fontWeight: FontWeight.w800)),
+      Text('${ArabicFootball.league(leagueName)} · $_season / ${_season + 1}', style: const TextStyle(color: cMint, fontSize: 12, fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
       ...groups.map((group) => _standingsTable(group)),
     ]);
@@ -1050,7 +1494,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
                 Expanded(child: Row(children: [
                   NetworkBadge(url: team['logo']?.toString() ?? '', label: team['name']?.toString() ?? '', size: 23),
                   const SizedBox(width: 5),
-                  Expanded(child: Text(_mapText(team['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
+                  Expanded(child: Text(ArabicFootball.team(_mapText(team['name'])), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
                 ])),
                 SizedBox(width: 25, child: Text(_mapText(all['played']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
                 SizedBox(width: 22, child: Text(_mapText(all['win']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
@@ -1096,7 +1540,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
             const SizedBox(width: 9),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(_mapText(player['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
-              Text(_mapText(team['name']), style: const TextStyle(color: cMuted, fontSize: 10)),
+              Text(ArabicFootball.team(_mapText(team['name'])), style: const TextStyle(color: cMuted, fontSize: 10)),
             ])),
             Text(_mapText(rawMetric, '0'), style: const TextStyle(color: cMint, fontSize: 19, fontWeight: FontWeight.w900)),
             const SizedBox(width: 4),
@@ -1106,6 +1550,171 @@ class _StandingsScreenState extends State<StandingsScreen> {
       }),
     ]);
   }
+}
+
+class HighlightlyStandingsSection extends StatefulWidget {
+  const HighlightlyStandingsSection({super.key});
+
+  @override
+  State<HighlightlyStandingsSection> createState() => _HighlightlyStandingsSectionState();
+}
+
+class _HighlightlyStandingsSectionState extends State<HighlightlyStandingsSection> {
+  late Future<List<Map<String, dynamic>>> _leaguesFuture;
+  int? _selectedLeagueId;
+  int? _selectedSeason;
+
+  @override
+  void initState() {
+    super.initState();
+    _leaguesFuture = HighlightlyApi.instance.allLeagues();
+  }
+
+  void _reload() {
+    setState(() => _leaguesFuture = HighlightlyApi.instance.allLeagues());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!HighlightlyApi.instance.isConfigured) {
+      return const EmptyPanel(
+        title: 'Highlightly غير مفعّل بعد',
+        subtitle: 'أضف مفتاح HIGHLIGHTLY_API_KEY إلى GitHub Secrets ثم أعد بناء التطبيق. سيبقى API-Football متاحاً كما هو.',
+      );
+    }
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _leaguesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل بطولات Highlightly');
+        if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: _reload);
+
+        final all = (snapshot.data ?? const <Map<String, dynamic>>[]).where((item) {
+          final country = item['country'] is Map ? (item['country']['name']?.toString() ?? '') : '';
+          final name = item['name']?.toString() ?? '';
+          return LeagueCatalog.isAllowedHighlightly(country, name);
+        }).toList();
+        if (all.isEmpty) {
+          return const EmptyPanel(title: 'لم تصل بطولات مطابقة', subtitle: 'تحقق من اشتراك Highlightly أو راجع قائمة البطولات التي يعيدها الحساب.');
+        }
+        all.sort((a, b) {
+          final aCountry = a['country'] is Map ? a['country']['name']?.toString() ?? '' : '';
+          final bCountry = b['country'] is Map ? b['country']['name']?.toString() ?? '' : '';
+          final aWrapper = <String, dynamic>{'country': aCountry, 'league': <String, dynamic>{'name': a['name']}};
+          final bWrapper = <String, dynamic>{'country': bCountry, 'league': <String, dynamic>{'name': b['name']}};
+          final priority = LeagueCatalog.priority(aWrapper).compareTo(LeagueCatalog.priority(bWrapper));
+          if (priority != 0) return priority;
+          return (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? '');
+        });
+
+        var selected = all.first;
+        for (final item in all) {
+          if ((item['id'] as num?)?.toInt() == _selectedLeagueId) {
+            selected = item;
+            break;
+          }
+        }
+        final leagueId = (selected['id'] as num?)?.toInt() ?? 0;
+        final seasonsRaw = selected['seasons'] is List ? selected['seasons'] as List : const [];
+        final seasons = seasonsRaw.whereType<Map>()
+            .map((item) => (item['season'] as num?)?.toInt())
+            .whereType<int>().toSet().toList()
+          ..sort((a, b) => b.compareTo(a));
+        final season = seasons.contains(_selectedSeason)
+            ? _selectedSeason!
+            : (seasons.isNotEmpty ? seasons.first : 0);
+        final countryName = selected['country'] is Map ? selected['country']['name']?.toString() ?? '' : '';
+        final displayLeague = ArabicFootball.league(selected['name']?.toString() ?? '', countryName);
+
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Panel(padding: const EdgeInsets.all(10), child: Row(children: [
+            const Icon(LucideIcons.info, color: cMint, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text('المواسم أدناه هي المواسم التي أعادها Highlightly لهذه البطولة تحديداً، ولا نفترض توفر 2026 أو 2027 ما لم تظهرا في القائمة.', style: const TextStyle(color: cMuted, fontSize: 10, height: 1.5))),
+          ])),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<int>(
+            value: leagueId > 0 ? leagueId : null,
+            isExpanded: true,
+            dropdownColor: cPanel,
+            decoration: const InputDecoration(labelText: 'اختر البطولة'),
+            items: all.map((item) {
+              final id = (item['id'] as num?)?.toInt();
+              final country = item['country'] is Map ? item['country']['name']?.toString() ?? '' : '';
+              final name = ArabicFootball.league(item['name']?.toString() ?? '', country);
+              return DropdownMenuItem<int>(value: id, child: Text('$name · ${ArabicFootball.country(country)}', overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)));
+            }).where((item) => item.value != null).toList(),
+            onChanged: (value) => setState(() { _selectedLeagueId = value; _selectedSeason = null; }),
+          ),
+          const SizedBox(height: 9),
+          if (seasons.isEmpty)
+            const EmptyPanel(title: 'لا توجد مواسم منشورة', subtitle: 'لم يعرض Highlightly أي موسم لهذه البطولة ضمن حسابك حالياً.')
+          else ...[
+            DropdownButtonFormField<int>(
+              value: season,
+              dropdownColor: cPanel,
+              decoration: const InputDecoration(labelText: 'الموسم المتاح'),
+              items: seasons.map((year) => DropdownMenuItem<int>(value: year, child: Text('$year / ${year + 1}'))).toList(),
+              onChanged: (value) => setState(() => _selectedSeason = value),
+            ),
+            const SizedBox(height: 12),
+            _highlightlyTable(leagueId, season, displayLeague),
+          ],
+        ]);
+      },
+    );
+  }
+
+  Widget _highlightlyTable(int leagueId, int season, String leagueName) => FutureBuilder<List<Map<String, dynamic>>>(
+    key: ValueKey('highlightly-standing-$leagueId-$season'),
+    future: HighlightlyApi.instance.standings(leagueId, season),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const LoadingPanel(label: 'جاري تحميل جدول الترتيب');
+      if (snapshot.hasError) return ErrorPanel(message: snapshot.error.toString(), onRetry: () => setState(() {}));
+      final groups = snapshot.data ?? const <Map<String, dynamic>>[];
+      if (groups.isEmpty) return const EmptyPanel(title: 'جدول الترتيب غير متاح', subtitle: 'الموسم موجود في قائمة البطولة، لكن مزوّد البيانات لم ينشر ترتيباً له بعد أو أن تغطيته غير متاحة.');
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('$leagueName · $season / ${season + 1}', style: const TextStyle(color: cMint, fontSize: 12, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        ...groups.map((group) {
+          final rows = group['standings'] is List ? group['standings'] as List : const [];
+          return Padding(padding: const EdgeInsets.only(bottom: 10), child: Panel(padding: const EdgeInsets.all(10), child: Column(children: [
+            if (_mapText(group['name'], '').isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 8), child: Align(alignment: Alignment.centerRight, child: Text(ArabicFootball.text(group['name']), style: const TextStyle(color: cMint, fontSize: 11, fontWeight: FontWeight.w800)))),
+            Row(children: const [
+              SizedBox(width: 22, child: Text('#', style: TextStyle(color: cMuted, fontSize: 9))),
+              Expanded(child: Text('الفريق', style: TextStyle(color: cMuted, fontSize: 9))),
+              SizedBox(width: 28, child: Text('لعب', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+              SizedBox(width: 24, child: Text('ف', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+              SizedBox(width: 24, child: Text('ت', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+              SizedBox(width: 24, child: Text('خ', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+              SizedBox(width: 34, child: Text('له/عليه', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 8))),
+              SizedBox(width: 30, child: Text('نقاط', textAlign: TextAlign.center, style: TextStyle(color: cMuted, fontSize: 9))),
+            ]),
+            const Divider(color: cLine),
+            ...rows.whereType<Map>().map((row) {
+              final team = row['team'] is Map ? Map<String, dynamic>.from(row['team']) : <String, dynamic>{};
+              final total = row['total'] is Map ? Map<String, dynamic>.from(row['total']) : <String, dynamic>{};
+              final scored = total['scoredGoals'] ?? 0;
+              final conceded = total['receivedGoals'] ?? 0;
+              return Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(children: [
+                SizedBox(width: 22, child: Text(_mapText(row['position']), style: const TextStyle(color: cMint, fontWeight: FontWeight.w900, fontSize: 10))),
+                Expanded(child: Row(children: [
+                  NetworkBadge(url: _mapText(team['logo'], ''), label: _mapText(team['name'], ''), size: 22),
+                  const SizedBox(width: 5),
+                  Expanded(child: Text(ArabicFootball.team(_mapText(team['name'], 'الفريق')), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
+                ])),
+                SizedBox(width: 28, child: Text(_mapText(total['games']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 24, child: Text(_mapText(total['wins']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 24, child: Text(_mapText(total['draws']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 24, child: Text(_mapText(total['loses']), textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                SizedBox(width: 34, child: Text('$scored/$conceded', textAlign: TextAlign.center, style: const TextStyle(fontSize: 8))),
+                SizedBox(width: 30, child: Text(_mapText(row['points']), textAlign: TextAlign.center, style: const TextStyle(color: cMint, fontSize: 10, fontWeight: FontWeight.w900))),
+              ]));
+            }),
+          ])));
+        }),
+      ]);
+    },
+  );
 }
 
 // ---------- News and official sources ----------
