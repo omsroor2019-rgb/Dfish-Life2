@@ -1,7 +1,7 @@
 name: dfish_live
 description: DFISH LIVE - Arabic football and entertainment companion.
 publish_to: 'none'
-version: 1.0.7+8
+version: 1.0.7+9
 environment:
   sdk: '>=3.13.0 <4.0.0'
 dependencies:
