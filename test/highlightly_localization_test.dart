@@ -14,6 +14,9 @@ void main() {
 
     test('keeps unknown proper names rather than inventing translations', () {
       expect(ArabicFootball.team('Unknown FC'), 'Unknown FC');
+      expect(ArabicFootball.team('New Club Name'), 'New Club Name');
+      expect(ArabicFootball.team('Manchester City FC'), 'مانشستر سيتي');
+      expect(ArabicFootball.team('   '), 'الفريق');
     });
   });
 
