@@ -11,7 +11,14 @@ class ArabicFootball {
     return _labels[key] ?? _clubs[key] ?? _players[key] ?? _countries[key] ?? raw;
   }
 
-  static String team(String value) => text(value, fallback: 'الفريق');
+  /// Translate only names explicitly present in the club dictionary.
+  /// Team names are proper nouns: an unknown name must remain unchanged,
+  /// even when it happens to normalize to a generic label such as 'unknown'.
+  static String team(String value) {
+    final raw = value.trim();
+    if (raw.isEmpty) return 'الفريق';
+    return _clubs[_normalize(raw)] ?? raw;
+  }
   static String country(String value) => _countries[_normalize(value)] ?? value;
 
   static String league(String value, [String countryName = '']) {
